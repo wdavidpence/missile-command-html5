@@ -132,6 +132,9 @@
       audio: null,
       fireCooldown: 0,
       hintTimer: 0,
+      saucer: null,
+      saucerTimer: 0,
+      saucerSpawnedThisWave: false,
       lives: 3,
       cities: []
     };
@@ -221,7 +224,7 @@
       }
     }
 
-    function createExplosion(x, y, maxR = 78) {
+    function createExplosion(x, y, maxR = 70) {
       state.explosions.push({ x, y, r: 1, maxR, life: 0.62, age: 0 });
       spawnParticles(x, y, 'rgba(120,220,255,', 14, 0.8);
       soundBoom(maxR / 80);
@@ -274,6 +277,9 @@
       state.explosions = [];
       state.interceptors = [];
       state.meteors = [];
+      state.saucer = null;
+      state.saucerTimer = 0;
+      state.saucerSpawnedThisWave = false;
       state.particles = [];
       state.flashes = [];
       state.fireCooldown = 0;
@@ -310,6 +316,8 @@
       state.spawnInterval = Math.max(0.38, 1.35 - state.wave * 0.06);
       state.spawnTimer = 0.2;
       state.hintTimer = 0.5;
+      state.saucerSpawnedThisWave = false;
+      state.saucerTimer = state.wave % 4 === 0 ? 2.4 : 0;
       spawnParticles(innerWidth / 2, innerHeight * 0.22, 'rgba(120,220,255,', 26, 0.5);
       beep({ type: 'sine', start: 520, end: 1180, duration: 0.22, gain: 0.06 });
     }
@@ -333,6 +341,24 @@
         alive: true,
         trail: []
       });
+    }
+
+    function spawnSaucer() {
+      if (state.saucer || state.saucerSpawnedThisWave) return;
+      const fromLeft = Math.random() < 0.5;
+      const y = rand(innerHeight * 0.16, innerHeight * 0.34);
+      const speed = rand(120, 180);
+      state.saucer = {
+        x: fromLeft ? -44 : innerWidth + 44,
+        y,
+        vx: fromLeft ? speed : -speed,
+        r: 16,
+        wobble: rand(0, Math.PI * 2),
+        alive: true,
+        flash: 0
+      };
+      state.saucerSpawnedThisWave = true;
+      beep({ type: 'square', start: 180, end: 320, duration: 0.12, gain: 0.04 });
     }
 
     function syncHud() {
@@ -361,7 +387,7 @@
         i.x += i.vx * dt;
         i.y += i.vy * dt;
         if (dist(i.x, i.y, i.tx, i.ty) < 16) {
-          createExplosion(i.tx, i.ty, 88 + state.wave * 1.4);
+          createExplosion(i.tx, i.ty, 76 + state.wave * 0.8);
           i.dead = true;
         }
         if (i.x < -40 || i.x > innerWidth + 40 || i.y < -40 || i.y > innerHeight + 40) i.dead = true;
@@ -389,6 +415,33 @@
         }
       }
       state.meteors = state.meteors.filter(m => !m.dead);
+
+      if (state.saucerTimer > 0) {
+        state.saucerTimer -= dt;
+        if (state.saucerTimer <= 0) spawnSaucer();
+      }
+
+      if (state.saucer) {
+        state.saucer.wobble += dt * 4.5;
+        state.saucer.x += state.saucer.vx * dt;
+        state.saucer.y += Math.sin(state.saucer.wobble) * 10 * dt;
+        state.saucer.flash = Math.max(0, state.saucer.flash - dt);
+        for (const e of state.explosions) {
+          if (!state.saucer) break;
+          const d = dist(e.x, e.y, state.saucer.x, state.saucer.y);
+          if (d < e.r + state.saucer.r) {
+            const bonus = 300 + state.wave * 20;
+            state.score += bonus;
+            spawnParticles(state.saucer.x, state.saucer.y, 'rgba(255,220,120,', 24, 1.2);
+            soundHit();
+            state.saucer = null;
+            break;
+          }
+        }
+        if (state.saucer && (state.saucer.x < -80 || state.saucer.x > innerWidth + 80)) {
+          state.saucer = null;
+        }
+      }
 
       for (const e of state.explosions) {
         e.age += dt;
@@ -565,6 +618,29 @@
         ctx.shadowBlur = 22;
         ctx.beginPath();
         ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      if (state.saucer) {
+        ctx.save();
+        ctx.translate(state.saucer.x, state.saucer.y);
+        const pulse = 0.65 + Math.sin(performance.now() * 0.02) * 0.12;
+        ctx.globalAlpha = pulse;
+        ctx.shadowColor = 'rgba(255,220,120,.95)';
+        ctx.shadowBlur = 18;
+        ctx.fillStyle = '#ffe7a1';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 22, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#9fe8ff';
+        ctx.beginPath();
+        ctx.ellipse(0, -6, 10, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255,160,70,.9)';
+        ctx.beginPath();
+        ctx.ellipse(0, 10, 12, 4, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
