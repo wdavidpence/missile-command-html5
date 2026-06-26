@@ -1005,6 +1005,47 @@ function syncHud() {
   }
 }
 
+// ─── Launch Indicator ────────────────────────────────────────────────
+function drawLaunchIndicator() {
+  if (!S.running || S.gameOver) return;
+  const px = S.lastPointerX, py = S.lastPointerY;
+  if (!px || !py) return;
+  // Find nearest base with ammo
+  let bestBase = null;
+  for (let i = 0; i < S.basePositions.length; i++) {
+    if (S.baseAmmo[i] <= 0) continue;
+    const b = S.basePositions[i];
+    if (!bestBase || dist(b.x, b.y, px, py) < dist(bestBase.x, bestBase.y, px, py)) {
+      bestBase = b;
+    }
+  }
+  if (!bestBase) return;
+  // Draw dotted line from base to target
+  ctx.save();
+  ctx.setLineDash([3, 5]);
+  ctx.strokeStyle = 'rgba(255,255,255,.25)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(bestBase.x, bestBase.y - 20);
+  ctx.lineTo(px, py);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // Arrow at target
+  const dx = px - bestBase.x;
+  const dy = py - bestBase.y;
+  const angle = Math.atan2(dy, dx);
+  ctx.translate(px, py);
+  ctx.rotate(angle);
+  ctx.strokeStyle = 'rgba(255,255,255,.4)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-8, -5);
+  ctx.lineTo(0, 0);
+  ctx.lineTo(-8, 5);
+  ctx.stroke();
+  ctx.restore();
+}
+
 // ─── Render ──────────────────────────────────────────────────────────
 function render(t) {
   ctx.save();
@@ -1038,6 +1079,13 @@ function render(t) {
   drawParticles();
   // Floating texts
   drawFloatingTexts();
+  // Launch indicator
+  drawLaunchIndicator();
+  // Game over flash
+  if (S.gameOver && S.time < 1.5) {
+    ctx.fillStyle = `rgba(255,255,255,${clamp(1.5 - S.time, 0, 0.7)})`;
+    ctx.fillRect(-10, -10, innerWidth+20, innerHeight+20);
+  }
   ctx.restore();
 }
 
