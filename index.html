@@ -242,18 +242,7 @@ function getTerrainHeight(x) {
 }
 
 function drawTerrain() {
-  ctx.strokeStyle = '#00ff41';
-  ctx.lineWidth = 2;
-  ctx.shadowColor = 'rgba(0,255,65,.5)';
-  ctx.shadowBlur = 4;
-  ctx.beginPath();
-  for (let x = 0; x < S.terrain.length; x++) {
-    const y = S.groundY + S.terrain[x];
-    if (x === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-  ctx.stroke();
-  ctx.shadowBlur = 0;
+  // Fill below ground with gradient
   const grd = ctx.createLinearGradient(0, S.groundY, 0, innerHeight);
   grd.addColorStop(0, '#003300');
   grd.addColorStop(1, '#000a00');
@@ -267,8 +256,21 @@ function drawTerrain() {
   ctx.lineTo(0, innerHeight);
   ctx.closePath();
   ctx.fill();
-  // Top edge highlight
-  ctx.strokeStyle = 'rgba(0,255,65,.3)';
+  // Main edge glow line
+  ctx.strokeStyle = '#00ff41';
+  ctx.lineWidth = 2;
+  ctx.shadowColor = 'rgba(0,255,65,.6)';
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  for (let x = 0; x < S.terrain.length; x++) {
+    const y = S.groundY + S.terrain[x];
+    if (x === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  // Top edge highlight line (brighter)
+  ctx.strokeStyle = 'rgba(150,255,150,.4)';
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = 0; x < S.terrain.length; x++) {
@@ -600,9 +602,8 @@ function splitMeteor(m) {
   }
   m.dead = true;
 }
-
 function drawMeteor(m) {
-  // Segmented trail
+  // Segmented trail (dotted line like original)
   for (let i = 0; i < m.trail.length; i++) {
     const p = m.trail[i];
     const alpha = (i / m.trail.length) * 0.5;
@@ -611,7 +612,17 @@ function drawMeteor(m) {
     ctx.fillStyle = '#ff4400';
     ctx.fillRect(p.x - size/2, p.y - size/2, size, size);
   }
+  // Extra trail glow
+  ctx.globalAlpha = 0.15;
+  ctx.fillStyle = '#ff2200';
+  ctx.shadowColor = 'rgba(255,50,0,.5)';
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.arc(m.x - m.vx*0.01, m.y - m.vy*0.01, m.r*0.6, 0, Math.PI*2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
   ctx.globalAlpha = 1;
+  // Meteor body
   ctx.save();
   ctx.translate(m.x, m.y);
   ctx.rotate(m.rot);
