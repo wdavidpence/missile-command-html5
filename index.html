@@ -314,13 +314,20 @@ function drawCities() {
     ctx.save();
     ctx.translate(c.x, c.y);
     if (!c.alive) {
-      // Rubble pile
-      ctx.fillStyle = '#334433';
-      ctx.globalAlpha = 0.5;
+      // Rubble pile - static scattered blocks
+      ctx.fillStyle = '#2a3322';
+      ctx.globalAlpha = 0.6;
+      const seed = Math.abs(c.x * 7 + c.y * 13);
       for (let i = -4; i <= 4; i++) {
-        const w = rand(3, 7);
-        const h = rand(2, 4);
-        ctx.fillRect(i*w - w/2, -h/2, w, h);
+        const w = ((seed + i*17) % 5) + 3;
+        const h = ((seed + i*23) % 3) + 2;
+        ctx.fillRect(i*w*0.7 - w/2, -h/2, w, h);
+      }
+      // Small scattered debris
+      ctx.fillStyle = '#3a4433';
+      for (let i = -5; i <= 5; i++) {
+        const sz = ((seed + i*31) % 3) + 1;
+        ctx.fillRect(i*4 - sz/2, -sz/2, sz, sz);
       }
       ctx.restore();
       continue;
@@ -343,7 +350,7 @@ function drawCities() {
     ctx.lineTo(10, 0);
     ctx.closePath();
     ctx.fill();
-    // Window lines
+    // Window lines (flickering)
     ctx.fillStyle = '#88ff88';
     ctx.shadowBlur = 0;
     const flicker = Math.sin(S.time*4 + c.x*0.1) > 0.2 ? 1 : 0.4;
@@ -354,7 +361,7 @@ function drawCities() {
       ctx.fillRect(-ww/2, yy, ww, 2);
     }
     ctx.globalAlpha = 1;
-    // Antenna
+    // Antenna with blink
     ctx.strokeStyle = '#00ff41';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
