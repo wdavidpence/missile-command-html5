@@ -383,11 +383,13 @@ function drawBases() {
   for (let i = 0; i < S.basePositions.length; i++) {
     const b = S.basePositions[i];
     const ammo = S.baseAmmo[i];
+    const noAmmo = ammo <= 0;
     ctx.save();
     ctx.translate(b.x, b.y);
+    ctx.globalAlpha = noAmmo ? 0.3 : 1;
     // Base triangle (rocket silo shape)
     ctx.fillStyle = '#00ff41';
-    ctx.shadowColor = 'rgba(0,255,65,.5)';
+    ctx.shadowColor = noAmmo ? 'rgba(100,100,100,.2)' : 'rgba(0,255,65,.5)';
     ctx.shadowBlur = 6;
     ctx.beginPath();
     ctx.moveTo(0, -20);
@@ -396,7 +398,7 @@ function drawBases() {
     ctx.closePath();
     ctx.fill();
     // Inner triangle
-    ctx.fillStyle = '#00cc33';
+    ctx.fillStyle = noAmmo ? '#334433' : '#00cc33';
     ctx.beginPath();
     ctx.moveTo(0, -15);
     ctx.lineTo(-9, 0);
@@ -404,7 +406,7 @@ function drawBases() {
     ctx.closePath();
     ctx.fill();
     // Antenna
-    ctx.strokeStyle = '#00ff41';
+    ctx.strokeStyle = noAmmo ? '#445544' : '#00ff41';
     ctx.lineWidth = 1.5;
     ctx.shadowBlur = 0;
     ctx.beginPath();
@@ -412,7 +414,7 @@ function drawBases() {
     ctx.lineTo(0, -28);
     ctx.stroke();
     // Blinking light
-    if (Math.sin(S.time*6 + i*2) > 0) {
+    if (!noAmmo && Math.sin(S.time*6 + i*2) > 0) {
       ctx.fillStyle = '#00ff41';
       ctx.shadowColor = 'rgba(0,255,65,.8)';
       ctx.shadowBlur = 6;
