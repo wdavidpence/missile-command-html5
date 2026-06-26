@@ -4,23 +4,25 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
 <meta name="theme-color" content="#000000" />
+<link rel="icon" href="data:," />
 <title>Missile Command</title>
 <style>
   html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#000; touch-action:none; overscroll-behavior:none; font-family: "Courier New", monospace; }
   canvas { display:block; width:100vw; height:100vh; image-rendering:pixelated; touch-action:none; }
   .hud { position:fixed; inset:0; pointer-events:none; display:flex; flex-direction:column; align-items:center; padding:8px 12px; box-sizing:border-box; user-select:none; }
   .score-bar { display:flex; justify-content:space-between; width:100%; max-width:600px; }
-  .score-item { color:#00ff41; font-size:clamp(11px,2.2vw,15px); font-weight:700; text-shadow:0 0 6px rgba(0,255,65,.6); letter-spacing:.05em; }
+  .score-item { color:#f4f4f4; font-size:clamp(11px,2.2vw,15px); font-weight:700; text-shadow:0 0 6px rgba(0,255,65,.6); letter-spacing:.05em; }
   .lives-bar { display:flex; gap:6px; margin-top:4px; }
-  .life-pip { width:clamp(8px,1.5vw,12px); height:clamp(8px,1.5vw,12px); background:#00ff41; border-radius:50%; box-shadow:0 0 6px rgba(0,255,65,.8); }
-  .life-pip.lost { background:#333; box-shadow:none; }
-  .wave-announce { position:fixed; left:50%; top:38%; transform:translate(-50%,-50%); color:#00ff41; font-size:clamp(28px,6vw,48px); font-weight:900; text-shadow:0 0 20px rgba(0,255,65,.8),0 0 40px rgba(0,255,65,.4); opacity:0; pointer-events:none; transition:opacity .3s; letter-spacing:.15em; }
+  .life-pip { width:clamp(8px,1.5vw,12px); height:clamp(8px,1.5vw,12px); background:#dfe7ea; border-radius:50%; box-shadow:0 0 4px rgba(255,255,255,.35); }
+  .life-pip.lost { background:#3a2b25; box-shadow:none; }
+  .wave-announce { position:fixed; left:50%; top:38%; transform:translate(-50%,-50%); color:#f4f4f4; font-size:clamp(28px,6vw,48px); font-weight:900; text-shadow:0 0 12px rgba(255,255,255,.3),0 0 30px rgba(255,140,60,.15); opacity:0; pointer-events:none; transition:opacity .3s; letter-spacing:.15em; }
   .wave-announce.show { opacity:1; }
   .overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; user-select:none; }
   .overlay.hidden { display:none; }
-  .overlay h1 { color:#00ff41; font-size:clamp(32px,7vw,56px); text-shadow:0 0 18px rgba(0,255,65,.7),0 0 40px rgba(0,255,65,.3); margin:0 0 10px; letter-spacing:.08em; }
-  .overlay p { color:#00cc33; font-size:clamp(12px,2.4vw,16px); margin:4px auto; text-shadow:0 0 8px rgba(0,255,65,.4); }
+  .overlay h1 { color:#f4f4f4; font-size:clamp(32px,7vw,56px); text-shadow:0 0 12px rgba(255,255,255,.25),0 0 28px rgba(255,140,60,.15); margin:0 0 10px; letter-spacing:.08em; }
+  .overlay p { color:#cfd8df; font-size:clamp(12px,2.4vw,16px); margin:4px auto; text-shadow:0 0 8px rgba(0,255,65,.4); }
   .overlay .blink { animation:blink 1s step-end infinite; }
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
   .combo { position:fixed; left:50%; top:44%; transform:translate(-50%,-50%); color:#ffff00; font-size:clamp(24px,5vw,40px); font-weight:900; text-shadow:0 0 16px rgba(255,255,0,.8); opacity:0; pointer-events:none; user-select:none; }
@@ -43,14 +45,17 @@
   <span class="life-pip" id="pip0"></span>
   <span class="life-pip" id="pip1"></span>
   <span class="life-pip" id="pip2"></span>
+  <span class="life-pip" id="pip3"></span>
+  <span class="life-pip" id="pip4"></span>
+  <span class="life-pip" id="pip5"></span>
 </div>
 </div>
 <div id="waveAnnounce" class="wave-announce"></div>
 <div id="combo" class="combo"></div>
 <div id="overlay" class="overlay">
   <h1>MISSILE COMMAND</h1>
-  <p>Defend your cities from incoming meteors!</p>
-  <p>Tap to launch missiles. Dig terrain to deflect attacks.</p>
+  <p>Defend your six cities from incoming missiles!</p>
+  <p>Tap to fire from the nearest silo. Survive the waves and earn bonus cities.</p>
   <p class="blink" style="margin-top:18px;">[ TAP TO START ]</p>
 </div>
 <script>
@@ -86,9 +91,12 @@ const S = {
   saucerTimer: 0,
   gridLines: [],
   gameOverTime: 0,
+  nextBonusCityAt: 10000,
   // City destruction animation
   cityDestructions: [],
 };
+
+window.__MC = S;
 
 function rand(a,b){return Math.random()*(b-a)+a;}
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
@@ -185,19 +193,11 @@ function initTerrain() {
 
 function layoutEntities() {
   const w = innerWidth;
-  const n = 6;
-  const spacing = w / (n+1);
-  S.cityPositions = [];
-  S.basePositions = [];
-  for (let i = 0; i < n; i++) {
-    const x = spacing * (i+1);
-    if (i % 2 === 0) {
-      S.cityPositions.push({x, y: S.groundY, alive: true});
-    } else {
-      S.basePositions.push({x, y: S.groundY, ammo: 18});
-    }
-  }
-  S.baseAmmo = S.basePositions.map(b => b.ammo);
+  const cityXs = [0.10, 0.20, 0.31, 0.69, 0.80, 0.90].map(p => w * p);
+  const baseXs = [0.22, 0.50, 0.78].map(p => w * p);
+  S.cityPositions = cityXs.map((x, index) => ({ x, y: S.groundY - 3, alive: true, rubble: 0, index }));
+  S.basePositions = baseXs.map((x, index) => ({ x, y: S.groundY, ammo: 10, alive: true, index }));
+  S.baseAmmo = S.basePositions.map(() => 10);
 }
 
 function buildStars() {
@@ -242,10 +242,9 @@ function getTerrainHeight(x) {
 }
 
 function drawTerrain() {
-  // Fill below ground with gradient
-  const grd = ctx.createLinearGradient(0, S.groundY, 0, innerHeight);
-  grd.addColorStop(0, '#003300');
-  grd.addColorStop(1, '#000a00');
+  const grd = ctx.createLinearGradient(0, S.groundY - 30, 0, innerHeight);
+  grd.addColorStop(0, '#1b2430');
+  grd.addColorStop(1, '#050607');
   ctx.fillStyle = grd;
   ctx.beginPath();
   ctx.moveTo(0, S.groundY + S.terrain[0]);
@@ -256,11 +255,9 @@ function drawTerrain() {
   ctx.lineTo(0, innerHeight);
   ctx.closePath();
   ctx.fill();
-  // Main edge glow line
-  ctx.strokeStyle = '#00ff41';
-  ctx.lineWidth = 2;
-  ctx.shadowColor = 'rgba(0,255,65,.6)';
-  ctx.shadowBlur = 8;
+
+  ctx.strokeStyle = 'rgba(160,180,200,.35)';
+  ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = 0; x < S.terrain.length; x++) {
     const y = S.groundY + S.terrain[x];
@@ -268,13 +265,12 @@ function drawTerrain() {
     else ctx.lineTo(x, y);
   }
   ctx.stroke();
-  ctx.shadowBlur = 0;
-  // Top edge highlight line (brighter)
-  ctx.strokeStyle = 'rgba(150,255,150,.4)';
-  ctx.lineWidth = 1;
+
+  ctx.strokeStyle = 'rgba(255,255,255,.10)';
+  ctx.lineWidth = 0.5;
   ctx.beginPath();
   for (let x = 0; x < S.terrain.length; x++) {
-    const y = S.groundY + S.terrain[x];
+    const y = S.groundY + S.terrain[x] - 1;
     if (x === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
@@ -284,7 +280,7 @@ function drawTerrain() {
 
 // ─── Background Grid ─────────────────────────────────────────────────
 function drawGrid() {
-  ctx.strokeStyle = 'rgba(0,255,65,.06)';
+  ctx.strokeStyle = 'rgba(80,160,255,.05)';
   ctx.lineWidth = 0.5;
   for (const line of S.gridLines) {
     ctx.beginPath();
@@ -318,97 +314,35 @@ function drawCities() {
     ctx.save();
     ctx.translate(c.x, c.y);
     if (!c.alive) {
-      // City destruction animation
-      const cd = S.cityDestructions.find(d => d.x === c.x);
-      if (cd) {
-        const progress = clamp(cd.life / cd.maxLife, 0, 1);
-        // Expanding fire/explosion
-        ctx.globalAlpha = 1 - progress;
-        ctx.shadowColor = 'rgba(255,100,0,.8)';
-        ctx.shadowBlur = 20 * (1 - progress);
-        const r = 40 * progress;
-        const rg = ctx.createRadialGradient(0, -18, 0, 0, -18, r);
-        rg.addColorStop(0, `rgba(255,255,200,${0.9 * (1-progress)})`);
-        rg.addColorStop(0.3, `rgba(255,150,50,${0.6 * (1-progress)})`);
-        rg.addColorStop(0.7, `rgba(255,80,20,${0.3 * (1-progress)})`);
-        rg.addColorStop(1, `rgba(200,40,0,0)`);
-        ctx.fillStyle = rg;
-        ctx.beginPath();
-        ctx.arc(0, -18, r, 0, Math.PI*2);
-        ctx.fill();
-        // Explosion particles
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#ff4400';
-        for (let i = 0; i < 8; i++) {
-          const angle = (i/8) * Math.PI * 2 + cd.time * 3;
-          const dist = 25 * progress;
-          const px = Math.cos(angle) * dist;
-          const py = -18 + Math.sin(angle) * dist;
-          ctx.globalAlpha = (1-progress) * 0.6;
-          ctx.fillRect(px-2, py-2, 4, 4);
-        }
-        ctx.restore();
-        continue;
-      }
-      // Final rubble pile - static
-      ctx.fillStyle = '#2a3322';
-      ctx.globalAlpha = 0.6;
-      const seed = Math.abs(c.x * 7 + c.y * 13);
-      for (let i = -4; i <= 4; i++) {
-        const w = ((seed + i*17) % 5) + 3;
-        const h = ((seed + i*23) % 3) + 2;
-        ctx.fillRect(i*w*0.7 - w/2, -h/2, w, h);
-      }
-      ctx.fillStyle = '#3a4433';
-      for (let i = -5; i <= 5; i++) {
-        const sz = ((seed + i*31) % 3) + 1;
-        ctx.fillRect(i*4 - sz/2, -sz/2, sz, sz);
-      }
+      ctx.fillStyle = '#473f38';
+      ctx.globalAlpha = 0.95;
+      ctx.fillRect(-12, -8, 24, 6);
+      ctx.fillRect(-8, -12, 16, 4);
+      ctx.fillRect(-4, -16, 8, 4);
+      ctx.fillStyle = '#6b5c50';
+      ctx.globalAlpha = 0.8;
+      ctx.fillRect(-14, -5, 28, 3);
+      ctx.fillRect(-10, -11, 20, 2);
       ctx.restore();
       continue;
     }
-    // Arcade-style triangular pyramid
-    ctx.shadowColor = 'rgba(0,255,65,.7)';
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = '#00ff41';
-    ctx.beginPath();
-    ctx.moveTo(0, -36);
-    ctx.lineTo(-16, 0);
-    ctx.lineTo(16, 0);
-    ctx.closePath();
-    ctx.fill();
-    // Inner triangle
-    ctx.fillStyle = '#00cc33';
-    ctx.beginPath();
-    ctx.moveTo(0, -28);
-    ctx.lineTo(-10, 0);
-    ctx.lineTo(10, 0);
-    ctx.closePath();
-    ctx.fill();
-    // Window lines (flickering)
-    ctx.fillStyle = '#88ff88';
+
+    ctx.shadowColor = 'rgba(255,255,255,.2)';
+    ctx.shadowBlur = 4;
+    ctx.fillStyle = '#d7e0e6';
+    ctx.fillRect(-12, -16, 8, 16);
+    ctx.fillRect(-4, -12, 8, 12);
+    ctx.fillRect(4, -18, 8, 18);
+    ctx.fillStyle = '#f4f4f4';
+    ctx.fillRect(-13, -4, 26, 4);
     ctx.shadowBlur = 0;
-    const flicker = Math.sin(S.time*4 + c.x*0.1) > 0.2 ? 1 : 0.4;
-    ctx.globalAlpha = flicker;
-    for (let row = 0; row < 3; row++) {
-      const yy = -8 - row*9;
-      const ww = 12 - row*3;
-      ctx.fillRect(-ww/2, yy, ww, 2);
-    }
-    ctx.globalAlpha = 1;
-    // Antenna with blink
-    ctx.strokeStyle = '#00ff41';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(0, -36);
-    ctx.lineTo(0, -44);
-    ctx.stroke();
-    if (Math.sin(S.time*5) > 0) {
-      ctx.fillStyle = '#00ff41';
-      ctx.beginPath();
-      ctx.arc(0, -44, 2, 0, Math.PI*2);
-      ctx.fill();
-    }
+    ctx.fillStyle = 'rgba(255,255,255,.7)';
+    ctx.fillRect(-11, -14, 2, 2);
+    ctx.fillRect(-7, -14, 2, 2);
+    ctx.fillRect(-3, -10, 2, 2);
+    ctx.fillRect(1, -10, 2, 2);
+    ctx.fillRect(5, -16, 2, 2);
+    ctx.fillRect(9, -16, 2, 2);
     ctx.restore();
   }
 }
@@ -417,61 +351,56 @@ function drawCities() {
 function drawBases() {
   for (let i = 0; i < S.basePositions.length; i++) {
     const b = S.basePositions[i];
-    const ammo = S.baseAmmo[i];
-    const noAmmo = ammo <= 0;
     ctx.save();
     ctx.translate(b.x, b.y);
-    ctx.globalAlpha = noAmmo ? 0.3 : 1;
-    // Base triangle (rocket silo shape)
-    ctx.fillStyle = '#00ff41';
-    ctx.shadowColor = noAmmo ? 'rgba(100,100,100,.2)' : 'rgba(0,255,65,.5)';
-    ctx.shadowBlur = 6;
+    if (!b.alive) {
+      ctx.fillStyle = '#403734';
+      ctx.globalAlpha = 0.95;
+      ctx.fillRect(-15, -6, 30, 6);
+      ctx.fillRect(-10, -11, 20, 4);
+      ctx.fillRect(-6, -15, 12, 3);
+      ctx.restore();
+      continue;
+    }
+
+    const ammo = S.baseAmmo[i];
+    ctx.shadowColor = 'rgba(255,255,255,.22)';
+    ctx.shadowBlur = 3;
+    ctx.fillStyle = '#f3f3f3';
     ctx.beginPath();
-    ctx.moveTo(0, -20);
+    ctx.moveTo(0, -18);
     ctx.lineTo(-14, 0);
     ctx.lineTo(14, 0);
     ctx.closePath();
     ctx.fill();
-    // Inner triangle
-    ctx.fillStyle = noAmmo ? '#334433' : '#00cc33';
+
+    ctx.fillStyle = '#9ab4c0';
     ctx.beginPath();
-    ctx.moveTo(0, -15);
+    ctx.moveTo(0, -13);
     ctx.lineTo(-9, 0);
     ctx.lineTo(9, 0);
     ctx.closePath();
     ctx.fill();
-    // Antenna
-    ctx.strokeStyle = noAmmo ? '#445544' : '#00ff41';
+
+    ctx.strokeStyle = 'rgba(255,120,90,.85)';
     ctx.lineWidth = 1.5;
-    ctx.shadowBlur = 0;
     ctx.beginPath();
-    ctx.moveTo(0, -20);
-    ctx.lineTo(0, -28);
+    ctx.moveTo(0, -18);
+    ctx.lineTo(0, -27);
     ctx.stroke();
-    // Blinking light
-    if (!noAmmo && Math.sin(S.time*6 + i*2) > 0) {
-      ctx.fillStyle = '#00ff41';
-      ctx.shadowColor = 'rgba(0,255,65,.8)';
-      ctx.shadowBlur = 6;
+
+    if (Math.sin(S.time * 8 + i) > 0) {
+      ctx.fillStyle = '#ff6644';
       ctx.beginPath();
-      ctx.arc(0, -28, 2, 0, Math.PI*2);
+      ctx.arc(0, -28, 2, 0, Math.PI * 2);
       ctx.fill();
-      ctx.shadowBlur = 0;
     }
-    // Ammo display
-    const ammoY = 8;
-    const lineW = 3;
-    const gap = 2;
-    for (let j = 0; j < Math.min(ammo, 20); j++) {
-      const lx = -((Math.min(ammo,20)-1)*(lineW+gap))/2 + j*(lineW+gap);
-      ctx.fillStyle = j < 5 ? '#00ff41' : '#00aa33';
-      ctx.fillRect(lx, ammoY, lineW, 2);
-    }
-    if (ammo > 20) {
-      ctx.fillStyle = '#00ff41';
-      ctx.font = '10px "Courier New"';
-      ctx.textAlign = 'center';
-      ctx.fillText(ammo+'', 0, ammoY + 10);
+
+    ctx.shadowBlur = 0;
+    const bars = Math.min(ammo, 10);
+    for (let j = 0; j < bars; j++) {
+      ctx.fillStyle = '#f6f3ea';
+      ctx.fillRect(-11 + j * 2.3, 6, 1.5, 4);
     }
     ctx.restore();
   }
@@ -566,107 +495,68 @@ function drawSaucer() {
 
 // ─── Meteors ─────────────────────────────────────────────────────────
 function spawnMeteor(targetCity, splitCount, splitY, sizeTier) {
-  const x = rand(20, innerWidth-20);
+  const x = rand(20, innerWidth - 20);
   const y = -20;
-  const speed = [65, 90, 120, 155][clamp(sizeTier,0,3)] + S.wave * 3;
-  // Target any alive city, or random
-  const alive = S.cityPositions.filter(c => c.alive);
-  const target = alive.length ? alive[Math.floor(rand(0, alive.length))] : null;
-  const tx = target ? target.x : rand(20, innerWidth-20);
-  const ty = S.groundY;
+  const targets = [];
+  for (const c of S.cityPositions) {
+    if (c.alive) targets.push({ x: c.x, y: c.y, kind: 'city' });
+  }
+  for (const b of S.basePositions) {
+    if (b.alive) targets.push({ x: b.x, y: b.y, kind: 'base' });
+  }
+  const target = targets.length ? targets[Math.floor(rand(0, targets.length))] : null;
+  const tx = target ? target.x : rand(20, innerWidth - 20);
+  const ty = target ? target.y : S.groundY;
   const dx = tx - x, dy = ty - y;
-  const len = Math.hypot(dx,dy)||1;
-  const radii = [14, 10, 7, 4.5][clamp(sizeTier,0,3)];
+  const len = Math.hypot(dx, dy) || 1;
+  const speed = [92, 118, 146, 176][clamp(sizeTier, 0, 3)] + S.wave * 4;
+  const radii = [3.5, 4.5, 5.5, 6.5][clamp(sizeTier, 0, 3)];
   S.meteors.push({
-    x, y, vx: dx/len*speed, vy: dy/len*speed,
-    r: radii, rot: rand(0,Math.PI*2), spin: rand(-3,3),
-    alive: true, trail: [],
-    splitCount, splitY: splitY || S.groundY * rand(0.25, 0.55),
-    sizeTier
+    x, y,
+    vx: dx / len * speed,
+    vy: dy / len * speed,
+    r: radii,
+    rot: rand(-0.4, 0.4),
+    spin: rand(-0.4, 0.4),
+    alive: true,
+    trail: [],
+    splitCount: 0,
+    splitY: 0,
+    sizeTier,
+    targetKind: target ? target.kind : 'city',
   });
 }
 
-function splitMeteor(m) {
-  // Split flash
-  spawnParticles(m.x, m.y, '#ff8800', 16, 1.5);
-  spawnParticles(m.x, m.y, '#ffff00', 10, 1.2);
-  const numSplits = Math.floor(rand(2, 5));
-  const newTier = clamp(m.sizeTier + 1, 0, 3);
-  const newSplitCount = Math.max(0, m.splitCount - 1);
-  for (let i = 0; i < numSplits; i++) {
-    const parentDir = Math.atan2(m.vy, m.vx);
-    const newSpeed = [65, 90, 120, 155][clamp(newTier,0,3)] + S.wave * 3;
-    const angle = rand(-0.8, 0.8);
-    const splitY = S.groundY * rand(0.2, 0.5);
-    const alive = S.cityPositions.filter(c => c.alive);
-    const target = alive.length ? alive[Math.floor(rand(0, alive.length))] : null;
-    const tx = target ? target.x : rand(20, innerWidth-20);
-    const ty = S.groundY;
-    const dx = tx - m.x, dy = ty - m.y;
-    const len = Math.hypot(dx,dy)||1;
-    const radii = [14, 10, 7, 4.5][clamp(newTier,0,3)];
-    S.meteors.push({
-      x: m.x + rand(-5,5), y: m.y + rand(-5,5),
-      vx: dx/len*newSpeed, vy: dy/len*newSpeed,
-      r: radii, rot: rand(0,Math.PI*2), spin: rand(-3,3),
-      alive: true, trail: [],
-      splitCount: newSplitCount,
-      splitY: newSplitCount > 0 ? splitY : S.groundY * 2,
-      sizeTier: newTier
-    });
-  }
-  m.dead = true;
-}
+function splitMeteor(m) {}
 function drawMeteor(m) {
-  // Segmented trail (dotted line like original)
   for (let i = 0; i < m.trail.length; i++) {
     const p = m.trail[i];
-    const alpha = (i / m.trail.length) * 0.5;
-    const size = m.r * 0.25 * (i / m.trail.length);
+    const alpha = (i / m.trail.length) * 0.42;
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#ff4400';
-    ctx.fillRect(p.x - size/2, p.y - size/2, size, size);
+    ctx.fillStyle = '#f4b07b';
+    const sz = 2 * (i / m.trail.length) + 1;
+    ctx.fillRect(p.x - sz / 2, p.y - sz / 2, sz, sz);
   }
-  // Extra trail glow
-  ctx.globalAlpha = 0.15;
-  ctx.fillStyle = '#ff2200';
-  ctx.shadowColor = 'rgba(255,50,0,.5)';
-  ctx.shadowBlur = 10;
-  ctx.beginPath();
-  ctx.arc(m.x - m.vx*0.01, m.y - m.vy*0.01, m.r*0.6, 0, Math.PI*2);
-  ctx.fill();
-  ctx.shadowBlur = 0;
   ctx.globalAlpha = 1;
-  // Meteor body
   ctx.save();
   ctx.translate(m.x, m.y);
-  ctx.rotate(m.rot);
-  ctx.shadowColor = 'rgba(255,50,0,.8)';
-  ctx.shadowBlur = 14;
-  const grd = ctx.createRadialGradient(-m.r*0.2, -m.r*0.2, 1, 0, 0, m.r);
-  grd.addColorStop(0, '#ffcc44');
-  grd.addColorStop(0.3, '#ff6600');
-  grd.addColorStop(0.7, '#cc3300');
-  grd.addColorStop(1, '#661100');
-  ctx.fillStyle = grd;
+  ctx.rotate(Math.atan2(m.vy, m.vx));
+  ctx.shadowColor = 'rgba(255,140,60,.65)';
+  ctx.shadowBlur = 10;
+  ctx.strokeStyle = '#fff3d5';
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(0, 0, m.r, 0, Math.PI*2);
+  ctx.moveTo(-7, 0);
+  ctx.lineTo(7, 0);
+  ctx.stroke();
+  ctx.fillStyle = '#ff9b4d';
+  ctx.beginPath();
+  ctx.arc(9, 0, Math.max(2.5, m.r), 0, Math.PI * 2);
   ctx.fill();
-  // Segmented lines
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = 'rgba(0,0,0,.3)';
-  ctx.lineWidth = 1;
-  for (let s = 0; s < 3; s++) {
-    const a = s * Math.PI * 2 / 3;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(Math.cos(a)*m.r, Math.sin(a)*m.r);
-    ctx.stroke();
-  }
-  // Highlight
-  ctx.fillStyle = 'rgba(255,255,200,.35)';
+  ctx.fillStyle = '#fff5e7';
   ctx.beginPath();
-  ctx.arc(-m.r*0.25, -m.r*0.25, m.r*0.35, 0, Math.PI*2);
+  ctx.arc(9, 0, Math.max(1.4, m.r * 0.45), 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
@@ -808,44 +698,33 @@ function drawFloatingTexts() {
 }
 
 // ─── Combo ───────────────────────────────────────────────────────────
-function addCombo() {
-  S.comboCount++;
-  S.comboTimer = 2.0;
-  S.comboMult = Math.min(1 + S.comboCount, 8);
-  if (S.comboCount >= 2) {
-    comboEl.textContent = S.comboMult + 'x COMBO!';
-    comboEl.classList.add('show');
-    setTimeout(()=>comboEl.classList.remove('show'), 700);
-  }
-}
+function addCombo() {}
 
 // ─── Wave Management ─────────────────────────────────────────────────
 function startWave() {
   S.wave++;
-  S.totalMeteorsInWave = 5 + S.wave * 3 + Math.floor(S.wave * S.wave * 0.15);
-  S.spawnInterval = Math.max(0.28, 1.35 - S.wave * 0.07);
-  S.spawnTimer = 0.3;
-  // Refill ammo
-  for (let i = 0; i < S.baseAmmo.length; i++) {
-    S.baseAmmo[i] = Math.min(25, 16 + Math.floor(S.wave * 0.5));
+  S.totalMeteorsInWave = 8 + S.wave * 4 + Math.floor(S.wave * 1.8);
+  S.spawnInterval = Math.max(0.22, 1.08 - S.wave * 0.06);
+  S.spawnTimer = 0.35;
+  for (let i = 0; i < S.basePositions.length; i++) {
+    S.basePositions[i].alive = true;
+    S.basePositions[i].ammo = 10;
+    S.baseAmmo[i] = 10;
   }
-  // Wave announcement
   waveAnnEl.textContent = 'WAVE ' + S.wave;
   waveAnnEl.classList.add('show');
-  S.waveAnnTimer = 2.0;
+  S.waveAnnTimer = 1.8;
   sndWaveStart();
-  // Saucer on every 5th wave
-  S.saucerTimer = S.wave % 5 === 0 ? 3.0 : 0;
+  S.saucerTimer = S.wave % 4 === 0 ? 2.5 : 0;
 }
 
 // ─── Spawning ────────────────────────────────────────────────────────
 function spawnWaveMeteors() {
   if (S.spawnTimer <= 0 && S.totalMeteorsInWave > 0) {
-    const maxSplits = Math.min(3, 1 + Math.floor(S.wave / 3));
-    const splitDepth = Math.floor(rand(0, maxSplits + 1));
-    spawnMeteor(null, splitDepth, null, 0);
+    const tier = Math.min(3, Math.floor(rand(0, 4)));
+    spawnMeteor(null, 0, null, tier);
     S.totalMeteorsInWave--;
-    S.spawnTimer = S.spawnInterval * rand(0.7, 1.2);
+    S.spawnTimer = S.spawnInterval * rand(0.75, 1.25);
   }
 }
 
@@ -886,120 +765,124 @@ function update(dt) {
     S.waveAnnTimer -= dt;
     if (S.waveAnnTimer <= 0) waveAnnEl.classList.remove('show');
   }
-  // Combo timer
-  if (S.comboTimer > 0) {
-    S.comboTimer -= dt;
-    if (S.comboTimer <= 0) { S.comboCount = 0; S.comboMult = 1; }
-  }
-  // Saucer timer
+
   if (S.saucerTimer > 0) {
     S.saucerTimer -= dt;
     if (S.saucerTimer <= 0) spawnSaucer();
   }
-  // Saucer update
+
   if (S.saucer) {
     const s = S.saucer;
     s.x += s.vx * dt;
-    // Check explosion collision
     for (const e of S.explosions) {
-      if (!s) break;
       if (dist(e.x, e.y, s.x, s.y) < e.r + s.r) {
-        addCombo();
-        const bonus = Math.round(s.points * S.comboMult);
+        const bonus = Math.round(s.points);
         S.score += bonus;
-        spawnParticles(s.x, s.y, '#ffcc44', 24, 1.2);
-        spawnParticles(s.x, s.y, '#ff6644', 16, 1.0);
-        addFloatingText(s.x, s.y - 30, '+' + bonus, '#ffcc44', 20);
+        spawnParticles(s.x, s.y, '#ffd36c', 28, 1.2);
+        spawnParticles(s.x, s.y, '#ff8e4a', 20, 1.0);
+        addFloatingText(s.x, s.y - 30, '+' + bonus, '#ffd36c', 20);
         sndSaucerBonus();
         S.saucer = null;
         S.screenShake = Math.max(S.screenShake, 0.15);
         break;
       }
     }
-    // Off screen
     if (S.saucer && (S.saucer.x < -80 || S.saucer.x > innerWidth + 80)) {
       S.saucer = null;
     }
   }
-  // Spawn meteors
+
   spawnWaveMeteors();
-  // Check wave complete
+
   if (S.totalMeteorsInWave <= 0 && S.meteors.length === 0 && S.interceptors.length === 0 && S.explosions.length === 0) {
-    // Wave bonus: surviving cities
-    let waveBonus = 0;
-    for (const c of S.cityPositions) {
-      if (c.alive) waveBonus += 100;
-    }
+    const citiesBonus = S.cityPositions.reduce((sum, c) => sum + (c.alive ? 50 * S.wave : 0), 0);
+    const missilesBonus = S.baseAmmo.reduce((sum, ammo) => sum + ammo * 5 * S.wave, 0);
+    const waveBonus = citiesBonus + missilesBonus;
     if (waveBonus > 0) {
       S.score += waveBonus;
-      addFloatingText(innerWidth/2, S.groundY - 80, 'WAVE BONUS: +' + waveBonus, '#00ff41', 18);
+      addFloatingText(innerWidth / 2, S.groundY - 80, 'WAVE BONUS: +' + waveBonus, '#f4f4f4', 18);
     }
     startWave();
     return;
   }
-  // Update interceptors
+
   for (const i of S.interceptors) {
-    i.trail.push({x:i.x, y:i.y});
+    i.trail.push({ x: i.x, y: i.y });
     if (i.trail.length > 8) i.trail.shift();
-    i.x += i.vx*dt;
-    i.y += i.vy*dt;
-    if (dist(i.x,i.y,i.tx,i.ty) < 14) {
-      createExplosion(i.tx, i.ty, 52 + S.wave * 1.2);
+    i.x += i.vx * dt;
+    i.y += i.vy * dt;
+    if (dist(i.x, i.y, i.tx, i.ty) < 14) {
+      createExplosion(i.tx, i.ty, 46 + S.wave * 0.9);
       i.dead = true;
     }
-    if (i.x < -60 || i.x > innerWidth+60 || i.y < -60 || i.y > innerHeight+60) i.dead = true;
+    if (i.x < -60 || i.x > innerWidth + 60 || i.y < -60 || i.y > innerHeight + 60) i.dead = true;
   }
   S.interceptors = S.interceptors.filter(i => !i.dead);
-  // Update meteors
+
   for (const m of S.meteors) {
     m.rot += m.spin * dt;
     m.x += m.vx * dt;
     m.y += m.vy * dt;
-    m.trail.push({x:m.x, y:m.y});
-    if (m.trail.length > 12) m.trail.shift();
-    // Check splitting
-    if (m.splitCount > 0 && m.y >= m.splitY) {
-      splitMeteor(m);
+    m.trail.push({ x: m.x, y: m.y });
+    if (m.trail.length > 10) m.trail.shift();
+
+    let detonated = false;
+
+    for (const c of S.cityPositions) {
+      if (!c.alive) continue;
+      if (dist(m.x, m.y, c.x, c.y) < 20) {
+        c.alive = false;
+        S.lives = Math.max(0, S.lives - 1);
+        S.cityDestructions.push({ x: c.x, y: c.y, life: 1.0, maxLife: 1.0, time: 0 });
+        spawnParticles(c.x, c.y - 12, '#ffffff', 10, 1.0);
+        spawnParticles(c.x, c.y - 12, '#ff8e4a', 18, 1.0);
+        S.screenShake = 0.4;
+        sndCityHit();
+        addFloatingText(c.x, c.y - 46, 'CITY LOST!', '#ff6655', 16);
+        detonated = true;
+        break;
+      }
     }
-    // Check terrain collision
-    const terrainH = getTerrainHeight(m.x);
-    const groundLevel = S.groundY + terrainH;
-    if (m.y >= groundLevel - m.r) {
-      m.dead = true;
-      // Check if hitting a city
-      for (const c of S.cityPositions) {
-        if (!c.alive) continue;
-        if (Math.abs(c.x - m.x) < 22 && Math.abs(c.y - m.y) < 30) {
-          c.alive = false;
-          S.lives--;
-          // Start destruction animation
-          S.cityDestructions.push({x: c.x, y: c.y, life: 1.2, maxLife: 1.2, time: 0});
-          spawnParticles(c.x, c.y-15, '#00ff41', 30, 1.2);
-          spawnParticles(c.x, c.y-15, '#ff4400', 15, 0.8);
-          S.screenShake = 0.4;
+
+    if (!detonated) {
+      for (const b of S.basePositions) {
+        if (!b.alive) continue;
+        if (dist(m.x, m.y, b.x, b.y) < 20) {
+          b.alive = false;
+          b.ammo = 0;
+          S.baseAmmo[S.basePositions.indexOf(b)] = 0;
+          spawnParticles(b.x, b.y - 8, '#ffffff', 8, 0.8);
+          spawnParticles(b.x, b.y - 8, '#ff8e4a', 12, 0.8);
+          S.screenShake = 0.25;
           sndCityHit();
-          addFloatingText(c.x, c.y-50, 'CITY LOST!', '#ff4444', 16);
-          if (S.lives <= 0) { setTimeout(gameOver, 300); }
+          addFloatingText(b.x, b.y - 42, 'BASE HIT!', '#ffd36c', 14);
+          detonated = true;
           break;
         }
       }
-      // Deflect off terrain hills
-      const leftH = getTerrainHeight(m.x - 4);
-      const rightH = getTerrainHeight(m.x + 4);
-      const slope = rightH - leftH;
-      if (Math.abs(slope) > 1.5) {
-        m.vy = -Math.abs(m.vy) * 0.5;
-        m.vx += slope * 8;
-        m.dead = false;
-        spawnParticles(m.x, m.y, '#ff8800', 6, 0.4);
-      } else {
-        digTerrain(m.x, m.y, m.r * 2);
-        spawnParticles(m.x, m.y, '#ff6600', 8, 0.5);
+    }
+
+    if (!detonated) {
+      const terrainH = getTerrainHeight(m.x);
+      const groundLevel = S.groundY + terrainH;
+      if (m.y >= groundLevel - m.r) {
+        digTerrain(m.x, m.y, m.r * 1.15);
+        spawnParticles(m.x, m.y, '#ff8e4a', 8, 0.6);
+        detonated = true;
       }
+    }
+
+    if (detonated) {
+      createExplosion(m.x, m.y, 26 + m.r * 2);
+      m.dead = true;
+    }
+
+    if (m.x < -60 || m.x > innerWidth + 60 || m.y < -80 || m.y > innerHeight + 80) {
+      m.dead = true;
     }
   }
   S.meteors = S.meteors.filter(m => !m.dead);
-  // Update explosions
+
   for (const e of S.explosions) {
     e.age += dt;
     e.life -= dt;
@@ -1009,23 +892,15 @@ function update(dt) {
     } else {
       e.r = lerp(e.maxR, 0, (e.age - 0.16) / 0.35);
     }
-    // Check meteor collisions
     for (const m of S.meteors) {
       if (m.dead || !m.alive) continue;
       if (dist(e.x, e.y, m.x, m.y) < e.r + m.r) {
         m.dead = true;
-        const basePoints = [60, 80, 100, 120][clamp(m.sizeTier,0,3)];
-        addCombo();
-        const totalPts = Math.round(basePoints * S.comboMult);
-        S.score += totalPts;
-        const minAmmo = Math.min(...S.baseAmmo);
-        if (minAmmo <= 1) {
-          S.score += 50;
-          addFloatingText(m.x, m.y-20, '+50 BONUS!', '#ff8800', 14);
-        }
-        spawnParticles(m.x, m.y, '#ff4400', 12, 0.8);
-        spawnParticles(m.x, m.y, '#ffcc00', 8, 0.6);
-        addFloatingText(m.x, m.y-25, '+'+totalPts, '#ffff00', 15);
+        const basePoints = [25, 50, 75, 100][clamp(m.sizeTier, 0, 3)];
+        S.score += basePoints;
+        spawnParticles(m.x, m.y, '#ff8e4a', 12, 0.8);
+        spawnParticles(m.x, m.y, '#fff4d6', 8, 0.6);
+        addFloatingText(m.x, m.y - 25, '+' + basePoints, '#ffffff', 15);
         sndMeteorCrack();
         S.screenShake = Math.max(S.screenShake, 0.08);
       }
@@ -1033,31 +908,44 @@ function update(dt) {
     if (e.life <= 0) e.dead = true;
   }
   S.explosions = S.explosions.filter(e => !e.dead);
-  // Update particles
+
   for (const p of S.particles) {
     p.life -= dt;
-    p.x += p.vx*dt;
-    p.y += p.vy*dt;
-    p.vy += 40*dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += 40 * dt;
   }
   S.particles = S.particles.filter(p => p.life > 0);
-  // Update floating texts
+
   for (const ft of S.floatingTexts) {
     ft.life -= dt;
-    ft.y -= 30*dt;
+    ft.y -= 30 * dt;
   }
   S.floatingTexts = S.floatingTexts.filter(ft => ft.life > 0);
-  // Update city destructions
+
   for (const cd of S.cityDestructions) {
     cd.time += dt;
     cd.life -= dt;
   }
   S.cityDestructions = S.cityDestructions.filter(cd => cd.life > 0);
-  // Update game over flash
+
+  while (S.score >= S.nextBonusCityAt) {
+    const deadCity = S.cityPositions.find(c => !c.alive);
+    if (deadCity) {
+      deadCity.alive = true;
+      S.lives = Math.min(6, S.lives + 1);
+      addFloatingText(deadCity.x, deadCity.y - 42, 'BONUS CITY!', '#ffffff', 14);
+    }
+    S.nextBonusCityAt += 10000;
+  }
+
+  if (S.cityPositions.every(c => !c.alive)) {
+    setTimeout(gameOver, 250);
+  }
+
   if (S.gameOver) {
     S.gameOverTime += dt;
   }
-  // High score
   if (S.score > S.high) {
     S.high = S.score;
     localStorage.setItem('mc_high', String(S.high));
@@ -1070,7 +958,7 @@ function syncHud() {
   scoreEl.textContent = 'SCORE: ' + S.score;
   waveEl.textContent = 'WAVE ' + S.wave;
   highEl.textContent = 'HIGH: ' + S.high;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 6; i++) {
     const pip = document.getElementById('pip' + i);
     if (pip) pip.classList.toggle('lost', i >= S.lives);
   }
@@ -1187,7 +1075,7 @@ function startGame() {
   S.score = 0;
   S.time = 0;
   S.wave = 0;
-  S.lives = 3;
+  S.lives = 6;
   S.explosions = [];
   S.interceptors = [];
   S.meteors = [];
@@ -1201,6 +1089,7 @@ function startGame() {
   S.waveAnnTimer = 0;
   S.saucer = null;
   S.saucerTimer = 0;
+  S.nextBonusCityAt = 10000;
   for (const c of S.cityPositions) { c.alive = true; }
   for (let i = 0; i < S.terrain.length; i++) S.terrain[i] = 0;
   overlayEl.classList.add('hidden');
