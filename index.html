@@ -27,12 +27,49 @@
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
   .combo { position:fixed; left:50%; top:44%; transform:translate(-50%,-50%); color:#ffff00; font-size:clamp(24px,5vw,40px); font-weight:900; text-shadow:0 0 16px rgba(255,255,0,.8); opacity:0; pointer-events:none; user-select:none; }
   .combo.show { opacity:1; }
+  .sound-toggle {
+    position:fixed;
+    top:10px;
+    right:12px;
+    z-index:20;
+    pointer-events:auto;
+    appearance:none;
+    border:1px solid rgba(255,255,255,.35);
+    background:rgba(0,0,0,.55);
+    color:#f4f4f4;
+    font:700 clamp(10px,1.8vw,13px) "Courier New", monospace;
+    letter-spacing:.08em;
+    padding:7px 10px 6px;
+    border-radius:999px;
+    text-shadow:0 0 8px rgba(0,255,65,.45);
+    box-shadow:0 0 10px rgba(0,0,0,.35), inset 0 0 10px rgba(255,255,255,.04);
+  }
+  .sound-toggle:active { transform:translateY(1px); }
+  .sound-toggle.muted {
+    color:#ffcf7a;
+    text-shadow:0 0 8px rgba(255,180,70,.45);
+    border-color:rgba(255,207,122,.45);
+  }
+  .pause-toggle {
+    right:114px;
+  }
+  .pause-toggle.paused {
+    color:#7be6ff;
+    text-shadow:0 0 8px rgba(120,230,255,.45);
+    border-color:rgba(123,230,255,.55);
+  }
+  .pause-overlay {
+    z-index:24;
+    background:rgba(0,0,0,.35);
+  }
   .scanlines { position:fixed; inset:0; pointer-events:none; background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.12) 2px,rgba(0,0,0,.12) 4px); z-index:10; }
   .vignette { position:fixed; inset:0; pointer-events:none; background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.5) 100%); z-index:9; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
+<button id="pauseToggle" class="sound-toggle pause-toggle" type="button" aria-pressed="false">PAUSE</button>
+<button id="soundToggle" class="sound-toggle" type="button" aria-pressed="false">SOUND ON</button>
 <div class="scanlines"></div>
 <div class="vignette"></div>
 <div class="hud">
@@ -52,6 +89,10 @@
 </div>
 <div id="waveAnnounce" class="wave-announce"></div>
 <div id="combo" class="combo"></div>
+<div id="pauseOverlay" class="overlay pause-overlay hidden">
+  <h1>PAUSED</h1>
+  <p>Press P, tap Pause, or return to the tab to resume.</p>
+</div>
 <div id="overlay" class="overlay">
   <h1>MISSILE COMMAND</h1>
   <p>Defend your six cities from incoming missiles!</p>
@@ -69,7 +110,10 @@ const waveEl = document.getElementById('waveLabel');
 const highEl = document.getElementById('highLabel');
 const waveAnnEl = document.getElementById('waveAnnounce');
 const comboEl = document.getElementById('combo');
+const pauseOverlayEl = document.getElementById('pauseOverlay');
 const overlayEl = document.getElementById('overlay');
+const pauseEl = document.getElementById('pauseToggle');
+const muteEl = document.getElementById('soundToggle');
 
 // ─── State ───────────────────────────────────────────────────────────
 const S = {
@@ -82,7 +126,10 @@ const S = {
   terrain: null, groundY: 0,
   basePositions: [], cityPositions: [],
   lastPointerX: 0, lastPointerY: 0,
-  audio: null, audioPrimed: false, audioUnlockP: null, gestureLock: false, fireCooldown: 0,
+  audio: null, masterGain: null, audioPrimed: false, audioUnlockP: null, gestureLock: false, fireCooldown: 0,
+  muted: localStorage.getItem('mc_muted') === '1',
+  volume: 0.86,
+  paused: false, pauseReason: '',
   comboCount: 0, comboTimer: 0, comboMult: 1,
   waveAnnTimer: 0, screenShake: 0,
   baseAmmo: [],
@@ -110,11 +157,65 @@ function audioInit() {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
       S.audio = new AC({ latencyHint: 'interactive' });
+      S.masterGain = S.audio.createGain();
+      S.masterGain.gain.value = S.muted ? 0 : S.volume;
+      S.masterGain.connect(S.audio.destination);
     }
     return S.audio;
   } catch (e) {
     return null;
   }
+}
+
+function updateMasterGain() {
+  if (!S.masterGain) return;
+  const target = S.muted ? 0 : S.volume;
+  const now = S.audio ? S.audio.currentTime : 0;
+  try {
+    S.masterGain.gain.cancelScheduledValues(now);
+    S.masterGain.gain.setTargetAtTime(target, now, 0.015);
+  } catch (e) {
+    S.masterGain.gain.value = target;
+  }
+}
+
+function setMuted(next) {
+  S.muted = !!next;
+  localStorage.setItem('mc_muted', S.muted ? '1' : '0');
+  updateMasterGain();
+  syncMuteUi();
+}
+
+function syncMuteUi() {
+  if (!muteEl) return;
+  muteEl.textContent = S.muted ? 'SOUND OFF' : 'SOUND ON';
+  muteEl.classList.toggle('muted', S.muted);
+  muteEl.setAttribute('aria-pressed', S.muted ? 'true' : 'false');
+}
+
+function syncPauseUi() {
+  if (!pauseEl) return;
+  pauseEl.textContent = S.paused ? 'RESUME' : 'PAUSE';
+  pauseEl.classList.toggle('paused', S.paused);
+  pauseEl.setAttribute('aria-pressed', S.paused ? 'true' : 'false');
+  if (pauseOverlayEl) pauseOverlayEl.classList.toggle('hidden', !S.paused);
+}
+
+function setPaused(next, reason = 'manual') {
+  const shouldPause = !!next && S.running && !S.gameOver;
+  if (shouldPause === S.paused) {
+    if (!shouldPause) S.pauseReason = '';
+    return S.paused;
+  }
+  S.paused = shouldPause;
+  S.pauseReason = shouldPause ? reason : '';
+  syncPauseUi();
+  return S.paused;
+}
+
+function togglePause() {
+  if (!S.running || S.gameOver) return false;
+  return setPaused(!S.paused);
 }
 
 function resumeAudio() {
@@ -156,7 +257,7 @@ function primeAudio() {
   const ac = audioInit();
   if (!ac) return false;
   return whenAudioReady(() => {
-    if (S.audioPrimed) return;
+    if (S.audioPrimed || S.muted) return;
     try {
       const t = ac.currentTime;
       const osc1 = ac.createOscillator();
@@ -171,7 +272,7 @@ function primeAudio() {
       g.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
       osc1.connect(g);
       osc2.connect(g);
-      g.connect(ac.destination);
+      g.connect(S.masterGain || ac.destination);
       osc1.start(t);
       osc2.start(t);
       osc1.stop(t + 0.055);
@@ -183,6 +284,7 @@ function primeAudio() {
 
 function playOsc(cfg) {
   const ac = audioInit(); if (!ac) return;
+  if (S.muted) return;
   const run = () => {
     const t = ac.currentTime;
     const osc = ac.createOscillator();
@@ -198,7 +300,7 @@ function playOsc(cfg) {
     g.gain.exponentialRampToValueAtTime(gain, t + 0.004);
     g.gain.setValueAtTime(gain, t + d * 0.5);
     g.gain.exponentialRampToValueAtTime(0.0001, t + d);
-    osc.connect(g).connect(ac.destination);
+    osc.connect(g).connect(S.masterGain || ac.destination);
     osc.start(t);
     osc.stop(t + d + 0.02);
   };
@@ -207,6 +309,7 @@ function playOsc(cfg) {
 
 function playNoiseBurst({ dur = 0.12, gain = 0.12, type = 'bandpass', freq = 1200, q = 0.8 } = {}) {
   const ac = audioInit(); if (!ac) return;
+  if (S.muted) return;
   const run = () => {
     const t = ac.currentTime;
     const len = Math.max(1, Math.floor(ac.sampleRate * dur));
@@ -227,7 +330,7 @@ function playNoiseBurst({ dur = 0.12, gain = 0.12, type = 'bandpass', freq = 120
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(peak, t + 0.005);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(filt).connect(g).connect(ac.destination);
+    src.connect(filt).connect(g).connect(S.masterGain || ac.destination);
     src.start(t);
     src.stop(t + dur + 0.02);
   };
@@ -236,19 +339,19 @@ function playNoiseBurst({ dur = 0.12, gain = 0.12, type = 'bandpass', freq = 120
 
 // Authentic arcade sounds
 function sndLaunch() {
-  playOsc({type:'triangle',start:880,end:540,dur:0.08,gain:0.12});
+  playOsc({type:'triangle',start:980,end:620,dur:0.065,gain:0.10});
 }
 function sndExplosion() {
-  playNoiseBurst({dur:0.16, gain:0.16, type:'bandpass', freq:900, q:0.7});
-  playOsc({type:'sawtooth',start:180,end:50,dur:0.24,gain:0.10});
+  playNoiseBurst({dur:0.14, gain:0.15, type:'bandpass', freq:1000, q:0.65});
+  playOsc({type:'sawtooth',start:170,end:42,dur:0.20,gain:0.08});
 }
 function sndBigBoom() {
-  playNoiseBurst({dur:0.24, gain:0.19, type:'lowpass', freq:650, q:0.6});
-  playOsc({type:'sawtooth',start:110,end:24,dur:0.42,gain:0.12});
+  playNoiseBurst({dur:0.22, gain:0.18, type:'lowpass', freq:700, q:0.55});
+  playOsc({type:'sawtooth',start:100,end:20,dur:0.34,gain:0.10});
 }
 function sndCityHit() {
-  playOsc({type:'square',start:420,end:90,dur:0.18,gain:0.11});
-  playOsc({type:'sawtooth',start:220,end:60,dur:0.22,gain:0.09});
+  playOsc({type:'square',start:520,end:120,dur:0.14,gain:0.11});
+  playOsc({type:'sawtooth',start:180,end:70,dur:0.17,gain:0.08});
 }
 function sndMeteorCrack() {
   playOsc({type:'square',start:1150,end:260,dur:0.05,gain:0.10});
@@ -258,14 +361,14 @@ function sndSaucerAppear() {
   playOsc({type:'square',start:180,end:260,dur:0.08,gain:0.09});
 }
 function sndSaucerBonus() {
-  playOsc({type:'sine',start:520,end:1180,dur:0.24,gain:0.14});
+  playOsc({type:'sine',start:620,end:1320,dur:0.20,gain:0.12});
 }
 function sndGameOver() {
-  playOsc({type:'sawtooth',start:240,end:48,dur:0.65,gain:0.12});
-  playOsc({type:'square',start:120,end:40,dur:0.28,gain:0.08});
+  playOsc({type:'sawtooth',start:220,end:42,dur:0.58,gain:0.11});
+  playOsc({type:'square',start:110,end:36,dur:0.24,gain:0.08});
 }
 function sndWaveStart() {
-  playOsc({type:'sine',start:500,end:860,dur:0.16,gain:0.08});
+  playOsc({type:'sine',start:460,end:820,dur:0.14,gain:0.07});
 }
 
 // ─── Resize / Layout ─────────────────────────────────────────────────
@@ -1170,6 +1273,8 @@ function gameOver() {
 function startGame() {
   S.running = true;
   S.gameOver = false;
+  S.paused = false;
+  S.pauseReason = '';
   S.score = 0;
   S.time = 0;
   S.wave = 0;
@@ -1191,7 +1296,9 @@ function startGame() {
   for (const c of S.cityPositions) { c.alive = true; }
   for (let i = 0; i < S.terrain.length; i++) S.terrain[i] = 0;
   overlayEl.classList.add('hidden');
+  if (pauseOverlayEl) pauseOverlayEl.classList.add('hidden');
   startWave();
+  syncPauseUi();
   syncHud();
 }
 
@@ -1214,6 +1321,7 @@ async function onPointer(e) {
     startGame();
     return;
   }
+  if (S.paused) return;
   launchInterceptor(x, y);
 }
 
@@ -1227,9 +1335,51 @@ canvas.addEventListener('touchend', async (e) => {
 }, {passive:false});
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', ()=>setTimeout(resize, 100));
-document.addEventListener('visibilitychange', () => { if (!document.hidden) void resumeAudio(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (S.running && !S.gameOver) setPaused(true, 'hidden');
+  } else {
+    void resumeAudio();
+  }
+});
 window.addEventListener('pageshow', () => { void resumeAudio(); });
+if (muteEl) {
+  muteEl.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMuted(!S.muted);
+    if (!S.muted) {
+      await resumeAudio();
+      primeAudio();
+    }
+  });
+}
+if (pauseEl) {
+  pauseEl.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    togglePause();
+  });
+}
 window.addEventListener('keydown', async (e) => {
+  if (e.code === 'KeyM') {
+    e.preventDefault();
+    setMuted(!S.muted);
+    if (!S.muted) {
+      await resumeAudio();
+      primeAudio();
+    }
+    return;
+  }
+  if (e.code === 'KeyP' || e.code === 'Escape') {
+    e.preventDefault();
+    togglePause();
+    return;
+  }
+  if (S.paused) {
+    e.preventDefault();
+    return;
+  }
   if (e.code==='Space'||e.code==='Enter') {
     e.preventDefault();
     await primeAudio();
@@ -1243,13 +1393,15 @@ let lastTime = performance.now();
 function loop(now) {
   const dt = Math.min(0.033, (now - lastTime)/1000);
   lastTime = now;
-  if (S.running) update(dt);
+  if (S.running && !S.paused) update(dt);
   render(now/1000);
   requestAnimationFrame(loop);
 }
 
 resize();
 syncHud();
+syncMuteUi();
+updateMasterGain();
 requestAnimationFrame(loop);
 
 })();

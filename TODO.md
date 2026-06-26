@@ -7,3 +7,4 @@
 - [x] Rework the game toward a more authentic Missile Command clone
 - [x] Verify the final build in-browser and with git status
 - [x] Fix the late-frame explosion gradient crash and tighten audio/pacing authenticity
+- [x] Add a manual pause/resume control with keyboard support and auto-pause on tab hide
