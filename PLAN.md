@@ -18,3 +18,8 @@ Approach:
    - safer state transitions and no lockups
 4. Verify in-browser and with static checks.
 5. Commit the recovery changes and keep the repo clean.
+
+Current pass notes:
+- Explosion gradients are clamped so the canvas no longer throws on late-frame draws.
+- Sound is pushed closer to the arcade feel with a short launch chirp, noise-backed explosions, and tighter saucer/game-over cues.
+- Grid intensity is reduced and wave pacing is slightly less frantic for a more authentic cadence.

@@ -6,3 +6,4 @@
 - [x] Identify the best historical baseline commit to recover from
 - [x] Rework the game toward a more authentic Missile Command clone
 - [x] Verify the final build in-browser and with git status
+- [x] Fix the late-frame explosion gradient crash and tighten audio/pacing authenticity

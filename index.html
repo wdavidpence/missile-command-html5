@@ -141,34 +141,71 @@ function playOsc(cfg) {
   S._resumeP.then(()=>{ if(ac.state==='running') run(); }).catch(()=>{});
 }
 
+function playNoiseBurst({dur=0.12, gain=0.12, type='bandpass', freq=1200, q=0.8} = {}) {
+  const ac = S.audio; if (!ac) return;
+  const run = () => {
+    const t = ac.currentTime;
+    const len = Math.max(1, Math.floor(ac.sampleRate * dur));
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      const env = 1 - i / len;
+      data[i] = (Math.random() * 2 - 1) * env * 0.9;
+    }
+    const src = ac.createBufferSource();
+    src.buffer = buf;
+    const filt = ac.createBiquadFilter();
+    filt.type = type;
+    filt.frequency.setValueAtTime(freq, t);
+    filt.Q.value = q;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(filt).connect(g).connect(ac.destination);
+    src.start(t);
+    src.stop(t + dur + 0.02);
+  };
+  if (ac.state==='running') { run(); return; }
+  if (!S._resumeP) {
+    S._resumeP = ac.resume().catch(()=>{}).finally(()=>{ S._resumeP=null; });
+  }
+  S._resumeP.then(()=>{ if(ac.state==='running') run(); }).catch(()=>{});
+}
+
 // Authentic arcade sounds
 function sndLaunch() {
-  playOsc({type:'sawtooth',start:300,end:900,dur:0.12,gain:0.10});
+  playOsc({type:'square',start:320,end:980,dur:0.08,gain:0.09});
+  playOsc({type:'sawtooth',start:820,end:360,dur:0.09,gain:0.06});
 }
 function sndExplosion() {
-  playOsc({type:'sawtooth',start:180,end:40,dur:0.28,gain:0.14});
+  playNoiseBurst({dur:0.16, gain:0.12, type:'bandpass', freq:900, q:0.7});
+  playOsc({type:'sawtooth',start:160,end:38,dur:0.24,gain:0.08});
 }
 function sndBigBoom() {
-  playOsc({type:'sawtooth',start:120,end:25,dur:0.45,gain:0.18});
+  playNoiseBurst({dur:0.24, gain:0.16, type:'lowpass', freq:650, q:0.6});
+  playOsc({type:'sawtooth',start:110,end:24,dur:0.42,gain:0.10});
 }
 function sndCityHit() {
-  playOsc({type:'square',start:400,end:80,dur:0.5,gain:0.15});
-  playOsc({type:'sawtooth',start:200,end:60,dur:0.4,gain:0.12});
+  playOsc({type:'square',start:420,end:90,dur:0.18,gain:0.10});
+  playOsc({type:'sawtooth',start:220,end:60,dur:0.22,gain:0.08});
 }
 function sndMeteorCrack() {
-  playOsc({type:'square',start:1200,end:200,dur:0.08,gain:0.08});
+  playOsc({type:'square',start:1150,end:260,dur:0.05,gain:0.05});
 }
 function sndSaucerAppear() {
-  playOsc({type:'square',start:180,end:320,dur:0.15,gain:0.07});
+  playOsc({type:'square',start:180,end:260,dur:0.08,gain:0.06});
+  playOsc({type:'square',start:180,end:260,dur:0.08,gain:0.06});
 }
 function sndSaucerBonus() {
-  playOsc({type:'sine',start:520,end:1180,dur:0.25,gain:0.14});
+  playOsc({type:'sine',start:520,end:1180,dur:0.24,gain:0.14});
 }
 function sndGameOver() {
-  playOsc({type:'sawtooth',start:220,end:50,dur:0.8,gain:0.12});
+  playOsc({type:'sawtooth',start:240,end:48,dur:0.65,gain:0.10});
+  playOsc({type:'square',start:120,end:40,dur:0.28,gain:0.06});
 }
 function sndWaveStart() {
-  playOsc({type:'sine',start:520,end:880,dur:0.2,gain:0.06});
+  playOsc({type:'sine',start:500,end:860,dur:0.16,gain:0.05});
 }
 
 // ─── Resize / Layout ─────────────────────────────────────────────────
@@ -280,7 +317,7 @@ function drawTerrain() {
 
 // ─── Background Grid ─────────────────────────────────────────────────
 function drawGrid() {
-  ctx.strokeStyle = 'rgba(80,160,255,.05)';
+  ctx.strokeStyle = 'rgba(255,255,255,.025)';
   ctx.lineWidth = 0.5;
   for (const line of S.gridLines) {
     ctx.beginPath();
@@ -619,12 +656,13 @@ function createExplosion(x, y, maxR) {
 }
 
 function drawExplosion(e) {
+  const r = Math.max(0.5, e.r || 0);
   const alpha = clamp(e.life / 0.55, 0, 1);
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.shadowColor = 'rgba(0,255,255,.8)';
   ctx.shadowBlur = 24;
-  const rg = ctx.createRadialGradient(e.x, e.y, e.r*0.05, e.x, e.y, e.r);
+  const rg = ctx.createRadialGradient(e.x, e.y, Math.max(0.1, r*0.05), e.x, e.y, r);
   rg.addColorStop(0, 'rgba(255,255,255,0.98)');
   rg.addColorStop(0.15, 'rgba(230,255,255,0.85)');
   rg.addColorStop(0.4, 'rgba(100,255,255,0.45)');
@@ -632,24 +670,24 @@ function drawExplosion(e) {
   rg.addColorStop(1, 'rgba(0,150,255,0)');
   ctx.fillStyle = rg;
   ctx.beginPath();
-  ctx.arc(e.x, e.y, e.r, 0, Math.PI*2);
+  ctx.arc(e.x, e.y, r, 0, Math.PI*2);
   ctx.fill();
   // Bright center
-  if (e.r > 5) {
-    const cg = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, e.r*0.12);
+  if (r > 5) {
+    const cg = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, r*0.12);
     cg.addColorStop(0, 'rgba(255,255,255,0.9)');
     cg.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = cg;
     ctx.beginPath();
-    ctx.arc(e.x, e.y, e.r*0.12, 0, Math.PI*2);
+    ctx.arc(e.x, e.y, r*0.12, 0, Math.PI*2);
     ctx.fill();
   }
   // Outer ring line (expanding phase)
-  if (e.expanding && e.r > 8) {
+  if (e.expanding && r > 8) {
     ctx.strokeStyle = 'rgba(0,255,255,0.3)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(e.x, e.y, e.r, 0, Math.PI*2);
+    ctx.arc(e.x, e.y, r, 0, Math.PI*2);
     ctx.stroke();
   }
   ctx.shadowBlur = 0;
@@ -703,8 +741,8 @@ function addCombo() {}
 // ─── Wave Management ─────────────────────────────────────────────────
 function startWave() {
   S.wave++;
-  S.totalMeteorsInWave = 8 + S.wave * 4 + Math.floor(S.wave * 1.8);
-  S.spawnInterval = Math.max(0.22, 1.08 - S.wave * 0.06);
+  S.totalMeteorsInWave = 6 + S.wave * 3 + Math.floor(S.wave * 1.4);
+  S.spawnInterval = Math.max(0.24, 1.18 - S.wave * 0.055);
   S.spawnTimer = 0.35;
   for (let i = 0; i < S.basePositions.length; i++) {
     S.basePositions[i].alive = true;
@@ -887,10 +925,10 @@ function update(dt) {
     e.age += dt;
     e.life -= dt;
     if (e.expanding) {
-      e.r = lerp(0, e.maxR, e.age / 0.16);
+      e.r = lerp(0, e.maxR, clamp(e.age / 0.16, 0, 1));
       if (e.age >= 0.16) e.expanding = false;
     } else {
-      e.r = lerp(e.maxR, 0, (e.age - 0.16) / 0.35);
+      e.r = lerp(e.maxR, 0, clamp((e.age - 0.16) / 0.35, 0, 1));
     }
     for (const m of S.meteors) {
       if (m.dead || !m.alive) continue;
