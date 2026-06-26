@@ -82,7 +82,7 @@ const S = {
   terrain: null, groundY: 0,
   basePositions: [], cityPositions: [],
   lastPointerX: 0, lastPointerY: 0,
-  audio: null, fireCooldown: 0,
+  audio: null, audioPrimed: false, audioUnlockP: null, gestureLock: false, fireCooldown: 0,
   comboCount: 0, comboTimer: 0, comboMult: 1,
   waveAnnTimer: 0, screenShake: 0,
   baseAmmo: [],
@@ -108,60 +108,105 @@ function audioInit() {
   try {
     if (!S.audio) {
       const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
+      if (!AC) return null;
       S.audio = new AC({ latencyHint: 'interactive' });
     }
-    if (S.audio.state === 'suspended') S.audio.resume().catch(()=>{});
-  } catch(e) {}
+    return S.audio;
+  } catch (e) {
+    return null;
+  }
+}
+
+function resumeAudio() {
+  const ac = audioInit();
+  if (!ac) return Promise.resolve(false);
+  if (ac.state === 'running') return Promise.resolve(true);
+  if (S.audioUnlockP) return S.audioUnlockP;
+  const timeoutMs = 300;
+  S.audioUnlockP = Promise.race([
+    ac.resume().then(() => ac.state === 'running').catch(() => false),
+    new Promise((resolve) => setTimeout(() => resolve(ac.state === 'running'), timeoutMs)),
+  ]).finally(() => { S.audioUnlockP = null; });
+  return S.audioUnlockP;
+}
+
+function whenAudioReady(run, maxWait = 800) {
+  const ac = audioInit();
+  if (!ac) return false;
+  if (ac.state === 'running') {
+    run();
+    return true;
+  }
+  void resumeAudio();
+  const start = performance.now();
+  const timer = setInterval(() => {
+    if (ac.state === 'running') {
+      clearInterval(timer);
+      run();
+      return;
+    }
+    if (performance.now() - start >= maxWait) {
+      clearInterval(timer);
+    }
+  }, 25);
+  return false;
 }
 
 function primeAudio() {
-  const ac = S.audio;
-  if (!ac || S.audioPrimed) return;
-  try {
-    const t = ac.currentTime;
-    const osc = ac.createOscillator();
-    const g = ac.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(880, t);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.025, t + 0.004);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
-    osc.connect(g).connect(ac.destination);
-    osc.start(t);
-    osc.stop(t + 0.05);
-    S.audioPrimed = true;
-  } catch(e) {}
+  const ac = audioInit();
+  if (!ac) return false;
+  return whenAudioReady(() => {
+    if (S.audioPrimed) return;
+    try {
+      const t = ac.currentTime;
+      const osc1 = ac.createOscillator();
+      const osc2 = ac.createOscillator();
+      const g = ac.createGain();
+      osc1.type = 'triangle';
+      osc2.type = 'square';
+      osc1.frequency.setValueAtTime(880, t);
+      osc2.frequency.setValueAtTime(1320, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.085, t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+      osc1.connect(g);
+      osc2.connect(g);
+      g.connect(ac.destination);
+      osc1.start(t);
+      osc2.start(t);
+      osc1.stop(t + 0.055);
+      osc2.stop(t + 0.055);
+      S.audioPrimed = true;
+    } catch (e) {}
+  }, 1000);
 }
 
 function playOsc(cfg) {
-  const ac = S.audio; if (!ac) return;
+  const ac = audioInit(); if (!ac) return;
   const run = () => {
     const t = ac.currentTime;
     const osc = ac.createOscillator();
     const g = ac.createGain();
     osc.type = cfg.type || 'sine';
-    osc.frequency.setValueAtTime(cfg.start||440, t);
+    osc.frequency.setValueAtTime(cfg.start || 440, t);
     if (cfg.end !== undefined) {
-      osc.frequency.exponentialRampToValueAtTime(Math.max(1,cfg.end), t + (cfg.dur||0.1));
+      osc.frequency.exponentialRampToValueAtTime(Math.max(1, cfg.end), t + (cfg.dur || 0.1));
     }
-    const d = cfg.dur||0.1;
+    const d = cfg.dur || 0.1;
+    const gain = Math.max(cfg.gain || 0.1, 0.08);
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(cfg.gain||0.1, t+0.004);
-    g.gain.setValueAtTime(cfg.gain||0.1, t+d*0.5);
-    g.gain.exponentialRampToValueAtTime(0.0001, t+d);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.004);
+    g.gain.setValueAtTime(gain, t + d * 0.5);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
     osc.connect(g).connect(ac.destination);
-    osc.start(t); osc.stop(t+d+0.02);
+    osc.start(t);
+    osc.stop(t + d + 0.02);
   };
-  if (ac.state==='running') { run(); return; }
-  if (!S._resumeP) {
-    S._resumeP = ac.resume().catch(()=>{}).finally(()=>{ S._resumeP=null; });
-  }
-  S._resumeP.then(()=>{ if(ac.state==='running') run(); }).catch(()=>{});
+  whenAudioReady(run, 700);
 }
 
-function playNoiseBurst({dur=0.12, gain=0.12, type='bandpass', freq=1200, q=0.8} = {}) {
-  const ac = S.audio; if (!ac) return;
+function playNoiseBurst({ dur = 0.12, gain = 0.12, type = 'bandpass', freq = 1200, q = 0.8 } = {}) {
+  const ac = audioInit(); if (!ac) return;
   const run = () => {
     const t = ac.currentTime;
     const len = Math.max(1, Math.floor(ac.sampleRate * dur));
@@ -178,18 +223,15 @@ function playNoiseBurst({dur=0.12, gain=0.12, type='bandpass', freq=1200, q=0.8}
     filt.frequency.setValueAtTime(freq, t);
     filt.Q.value = q;
     const g = ac.createGain();
+    const peak = Math.max(gain, 0.10);
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(gain, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(peak, t + 0.005);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     src.connect(filt).connect(g).connect(ac.destination);
     src.start(t);
     src.stop(t + dur + 0.02);
   };
-  if (ac.state==='running') { run(); return; }
-  if (!S._resumeP) {
-    S._resumeP = ac.resume().catch(()=>{}).finally(()=>{ S._resumeP=null; });
-  }
-  S._resumeP.then(()=>{ if(ac.state==='running') run(); }).catch(()=>{});
+  whenAudioReady(run, 700);
 }
 
 // Authentic arcade sounds
@@ -1154,13 +1196,20 @@ function startGame() {
 }
 
 // ─── Input ───────────────────────────────────────────────────────────
-function onPointer(e) {
+function beginGesture() {
+  if (S.gestureLock) return false;
+  S.gestureLock = true;
+  setTimeout(() => { S.gestureLock = false; }, 180);
+  return true;
+}
+
+async function onPointer(e) {
   e.preventDefault();
-  audioInit();
-  primeAudio();
+  if (!beginGesture()) return;
+  await primeAudio();
   const rect = canvas.getBoundingClientRect();
-  const x = (e.clientX || (e.touches && e.touches[0].clientX) || innerWidth/2) - rect.left;
-  const y = (e.clientY || (e.touches && e.touches[0].clientY) || innerHeight/2) - rect.top;
+  const x = (e.clientX || (e.touches && e.touches[0].clientX) || innerWidth / 2) - rect.left;
+  const y = (e.clientY || (e.touches && e.touches[0].clientY) || innerHeight / 2) - rect.top;
   if (!S.running || S.gameOver) {
     startGame();
     return;
@@ -1170,14 +1219,20 @@ function onPointer(e) {
 
 canvas.addEventListener('pointerdown', onPointer, {passive:false});
 canvas.addEventListener('touchstart', onPointer, {passive:false});
-canvas.addEventListener('touchend', (e) => { if (!S.running || S.gameOver) onPointer(e); }, {passive:false});
+canvas.addEventListener('touchend', async (e) => {
+  e.preventDefault();
+  if (!beginGesture()) return;
+  await primeAudio();
+  if (!S.running || S.gameOver) startGame();
+}, {passive:false});
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', ()=>setTimeout(resize, 100));
-window.addEventListener('keydown', (e) => {
+document.addEventListener('visibilitychange', () => { if (!document.hidden) void resumeAudio(); });
+window.addEventListener('pageshow', () => { void resumeAudio(); });
+window.addEventListener('keydown', async (e) => {
   if (e.code==='Space'||e.code==='Enter') {
     e.preventDefault();
-    audioInit();
-    primeAudio();
+    await primeAudio();
     if (!S.running||S.gameOver) startGame();
     else launchInterceptor(S.lastPointerX||innerWidth/2, S.lastPointerY||innerHeight*0.4);
   }
