@@ -86,6 +86,23 @@
       font-size: 14px;
       pointer-events: none;
     }
+    .combo {
+      position: fixed;
+      left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      user-select: none;
+      font-size: clamp(28px, 6vw, 48px);
+      font-weight: 900;
+      color: #ffe7a1;
+      text-shadow: 0 0 20px rgba(255,220,120,.8), 0 0 40px rgba(255,220,120,.4);
+      opacity: 0;
+      transition: opacity 0.15s, transform 0.3s;
+    }
+    .combo.show {
+      opacity: 1;
+      transform: translate(-50%, -60%);
+    }
   </style>
 </head>
 <body>
@@ -94,10 +111,11 @@
     <div class="panel"><b>Score</b><span id="score">0</span></div>
     <div class="panel" style="text-align:right"><b>High</b><span id="high">0</span></div>
   </div>
+  <div id="combo" class="combo"></div>
   <div id="overlay" class="center">
     <h1 class="title">Pocket Shield</h1>
-    <p class="subtitle">Defend the city from incoming meteors.</p>
-    <p class="hint">Tap anywhere to launch an interceptor. Explosions are bigger if you hit near the center.</p>
+    <p class="subtitle">Defend the city from meteors and alien ships.</p>
+    <p class="hint">Tap anywhere to launch an interceptor. Shoot alien ships for bonus points!</p>
     <p class="small">Works with touch, mouse, and iPhone Safari.</p>
     <div class="badge">Tap to start</div>
   </div>
@@ -109,7 +127,19 @@
     const ctx = canvas.getContext('2d');
     const scoreEl = document.getElementById('score');
     const highEl = document.getElementById('high');
+    const comboEl = document.getElementById('combo');
     const overlay = document.getElementById('overlay');
+
+    // Kenney sound URLs (SFX Arcade Pack)
+    const KENNEY_SOUNDS = {
+      shoot:    'https://cdn.jsdelivr.net/gh/KenneyNL/SFX-Arcade-Pack@main/Wav/11_Shoot.wav',
+      explosion:'https://cdn.jsdelivr.net/gh/KenneyNL/SFX-Arcade-Pack@main/Wav/07_Explosion.wav',
+      laser:    'https://cdn.jsdelivr.net/gh/KenneyNL/SFX-Arcade-Pack@main/Wav/03_Laser.wav',
+      powerup:  'https://cdn.jsdelivr.net/gh/KenneyNL/SFX-Arcade-Pack@main/Wav/20_PowerUp.wav',
+      hit:      'https://cdn.jsdelivr.net/gh/KenneyNL/SFX-Arcade-Pack@main/Wav/06_Hit.wav',
+      alarm:    'https://cdn.jsdelivr.net/gh/KenneyNL/SFX-Arcade-Pack@main/Wav/01_Alarm.wav',
+      death:    'https://cdn.jsdelivr.net/gh/KenneyNL/SFX-Arcade-Pack@main/Wav/08_Death.wav',
+    };
 
     const state = {
       running: false,
@@ -130,13 +160,23 @@
       lastPointerX: 0,
       lastPointerY: 0,
       audio: null,
+      sounds: {},
+      soundEnabled: false,
       fireCooldown: 0,
       hintTimer: 0,
       saucer: null,
       saucerTimer: 0,
       saucerSpawnedThisWave: false,
       lives: 3,
-      cities: []
+      cities: [],
+      aliens: [],
+      alienTimer: 0,
+      comboCount: 0,
+      comboTimer: 0,
+      comboMultiplier: 1,
+      floatingTexts: [],
+      soundLoaded: false,
+      soundLoadAttempts: 0,
     };
 
     function rand(min, max) { return Math.random() * (max - min) + min; }
@@ -176,6 +216,7 @@
       ];
     }
 
+    // --- Audio: Kenney sounds via AudioContext ---
     function audioInit() {
       try {
         if (!state.audio) {
@@ -185,6 +226,39 @@
         }
         if (state.audio.state === 'suspended') state.audio.resume();
       } catch (_) {}
+    }
+
+    function loadKenneySound(name) {
+      if (state.soundLoaded) return;
+      if (state.sounds[name]) return;
+      const url = KENNEY_SOUNDS[name];
+      if (!url) return;
+      try {
+        const audio = new Audio(url);
+        audio.volume = 0.5;
+        audio.preload = 'auto';
+        state.sounds[name] = audio;
+      } catch(e) {}
+    }
+
+    function playSound(name, rate = 1) {
+      if (!state.soundEnabled) return;
+      const audio = state.sounds[name];
+      if (!audio) return;
+      try {
+        const a = audio.cloneNode();
+        a.playbackRate.value = rate;
+        a.volume = 0.5;
+        a.play().catch(() => {});
+      } catch(e) {}
+    }
+
+    function playKenneyOrFallback(name, fallbackFn) {
+      if (state.soundEnabled && state.sounds[name]) {
+        playSound(name);
+      } else {
+        fallbackFn();
+      }
     }
 
     function beep({ type = 'sine', start = 440, end = 220, duration = 0.1, gain = 0.08, when = 0 }) {
@@ -204,10 +278,46 @@
       osc.stop(t0 + duration + 0.03);
     }
 
-    function soundFire() { beep({ type: 'triangle', start: 880, end: 540, duration: 0.08, gain: 0.07 }); }
-    function soundBoom(intensity = 1) { beep({ type: 'sawtooth', start: 180, end: 50, duration: 0.22 + 0.12 * intensity, gain: 0.09 + 0.04 * intensity }); }
-    function soundHit() { beep({ type: 'square', start: 980, end: 260, duration: 0.14, gain: 0.05 }); }
-    function soundGameOver() { beep({ type: 'sawtooth', start: 220, end: 70, duration: 0.65, gain: 0.08 }); }
+    function soundFire() {
+      playKenneyOrFallback('shoot', () => beep({ type: 'triangle', start: 880, end: 540, duration: 0.08, gain: 0.07 }));
+    }
+    function soundBoom(intensity = 1) {
+      playKenneyOrFallback('explosion', () => beep({ type: 'sawtooth', start: 180, end: 50, duration: 0.22 + 0.12 * intensity, gain: 0.09 + 0.04 * intensity }));
+    }
+    function soundHit() {
+      playKenneyOrFallback('hit', () => beep({ type: 'square', start: 980, end: 260, duration: 0.14, gain: 0.05 }));
+    }
+    function soundGameOver() {
+      playKenneyOrFallback('death', () => beep({ type: 'sawtooth', start: 220, end: 70, duration: 0.65, gain: 0.08 }));
+    }
+    function soundAlienBonus() {
+      playKenneyOrFallback('powerup', () => {
+        beep({ type: 'sine', start: 520, end: 1180, duration: 0.25, gain: 0.07 });
+      });
+    }
+    function soundAlienAlarm() {
+      playKenneyOrFallback('alarm', () => beep({ type: 'square', start: 180, end: 320, duration: 0.12, gain: 0.04 }));
+    }
+    function soundLaser() {
+      playKenneyOrFallback('laser', () => beep({ type: 'sawtooth', start: 1200, end: 400, duration: 0.15, gain: 0.06 }));
+    }
+
+    function tryLoadSounds() {
+      if (state.soundLoadAttempts >= 5) return;
+      state.soundLoadAttempts++;
+      const names = Object.keys(KENNEY_SOUNDS);
+      let loaded = 0;
+      names.forEach(name => {
+        loadKenneySound(name);
+        const audio = state.sounds[name];
+        if (audio) {
+          audio.addEventListener('canplaythrough', () => { loaded++; if (loaded >= names.length) { state.soundEnabled = true; state.soundLoaded = true; } }, { once: true });
+          audio.addEventListener('error', () => {}, { once: true });
+          // Try to play briefly to trigger load
+          audio.play().then(() => { audio.pause(); audio.currentTime = 0; }).catch(() => {});
+        }
+      });
+    }
 
     function spawnParticles(x, y, color, count, speed = 1) {
       for (let i = 0; i < count; i++) {
@@ -222,6 +332,10 @@
           size: rand(1.5, 3.8)
         });
       }
+    }
+
+    function addFloatingText(x, y, text, color = '#ffe7a1', size = 20) {
+      state.floatingTexts.push({ x, y, text, color, size, life: 1.2, maxLife: 1.2 });
     }
 
     function createExplosion(x, y, maxR = 70) {
@@ -277,6 +391,7 @@
       state.explosions = [];
       state.interceptors = [];
       state.meteors = [];
+      state.aliens = [];
       state.saucer = null;
       state.saucerTimer = 0;
       state.saucerSpawnedThisWave = false;
@@ -285,10 +400,16 @@
       state.fireCooldown = 0;
       state.hintTimer = 4;
       state.lives = 3;
+      state.alienTimer = 0;
+      state.comboCount = 0;
+      state.comboTimer = 0;
+      state.comboMultiplier = 1;
+      state.floatingTexts = [];
       layoutCities();
       spawnWave();
       overlay.style.display = 'none';
       syncHud();
+      tryLoadSounds();
     }
 
     function gameOver() {
@@ -318,6 +439,8 @@
       state.hintTimer = 0.5;
       state.saucerSpawnedThisWave = false;
       state.saucerTimer = state.wave % 4 === 0 ? 2.4 : 0;
+      // Reset alien timer - aliens appear every wave, more frequently as waves progress
+      state.alienTimer = 3 + Math.max(0, 6 - state.wave); // starts at 3s, decreases each wave
       spawnParticles(innerWidth / 2, innerHeight * 0.22, 'rgba(120,220,255,', 26, 0.5);
       beep({ type: 'sine', start: 520, end: 1180, duration: 0.22, gain: 0.06 });
     }
@@ -355,10 +478,61 @@
         r: 16,
         wobble: rand(0, Math.PI * 2),
         alive: true,
-        flash: 0
+        flash: 0,
+        type: 'saucer'
       };
       state.saucerSpawnedThisWave = true;
-      beep({ type: 'square', start: 180, end: 320, duration: 0.12, gain: 0.04 });
+      soundAlienAlarm();
+    }
+
+    // --- New: Horizontal Alien Ships ---
+    function spawnAlienShip() {
+      if (state.aliens.length >= 3) return; // max 3 on screen
+      const fromLeft = Math.random() < 0.5;
+      const y = rand(innerHeight * 0.1, innerHeight * 0.4);
+      const speed = rand(100, 160) + state.wave * 3;
+      const size = rand(18, 28);
+      // Determine ship type for different point values
+      const roll = Math.random();
+      let type, points;
+      if (roll < 0.5) {
+        type = 'scout'; points = 150; // basic scout
+      } else if (roll < 0.8) {
+        type = 'fighter'; points = 300; // faster, worth more
+      } else {
+        type = 'cruiser'; points = 500; // slow, big, worth lots
+      }
+
+      state.aliens.push({
+        x: fromLeft ? -60 : innerWidth + 60,
+        y,
+        vx: fromLeft ? speed : -speed,
+        r: size,
+        wobble: rand(0, Math.PI * 2),
+        wobbleSpeed: rand(2, 5),
+        wobbleAmp: rand(15, 35),
+        alive: true,
+        flash: 0,
+        type,
+        points,
+        trail: []
+      });
+      soundAlienAlarm();
+    }
+
+    function addCombo() {
+      state.comboCount++;
+      state.comboTimer = 2.0; // 2 second window for combo
+      state.comboMultiplier = Math.min(1 + state.comboCount, 8); // max 8x
+      if (state.comboCount >= 2) {
+        showCombo(state.comboMultiplier);
+      }
+    }
+
+    function showCombo(multiplier) {
+      comboEl.textContent = `${multiplier}x COMBO!`;
+      comboEl.classList.add('show');
+      setTimeout(() => comboEl.classList.remove('show'), 800);
     }
 
     function syncHud() {
@@ -372,6 +546,25 @@
       state.spawnTimer -= dt;
       state.fireCooldown = Math.max(0, state.fireCooldown - dt);
       state.hintTimer = Math.max(0, state.hintTimer - dt);
+
+      // Combo timer
+      if (state.comboTimer > 0) {
+        state.comboTimer -= dt;
+        if (state.comboTimer <= 0) {
+          state.comboCount = 0;
+          state.comboMultiplier = 1;
+        }
+      }
+
+      // Alien ship spawning
+      if (state.alienTimer > 0) {
+        state.alienTimer -= dt;
+        if (state.alienTimer <= 0) {
+          spawnAlienShip();
+          // Next alien appears faster as waves progress
+          state.alienTimer = Math.max(1.5, 4 - state.wave * 0.25) + rand(0, 2);
+        }
+      }
 
       if (state.spawnTimer <= 0 && state.meteorsLeftInWave > 0) {
         spawnMeteor();
@@ -431,9 +624,12 @@
           const d = dist(e.x, e.y, state.saucer.x, state.saucer.y);
           if (d < e.r + state.saucer.r) {
             const bonus = 300 + state.wave * 20;
-            state.score += bonus;
+            addCombo();
+            const totalBonus = Math.round(bonus * state.comboMultiplier);
+            state.score += totalBonus;
             spawnParticles(state.saucer.x, state.saucer.y, 'rgba(255,220,120,', 24, 1.2);
-            soundHit();
+            addFloatingText(state.saucer.x, state.saucer.y - 30, `+${totalBonus}`, '#ffe7a1', 22);
+            soundAlienBonus();
             state.saucer = null;
             break;
           }
@@ -442,6 +638,40 @@
           state.saucer = null;
         }
       }
+
+      // Update alien ships
+      for (const a of state.aliens) {
+        a.wobble += dt * a.wobbleSpeed;
+        a.x += a.vx * dt;
+        a.y += Math.sin(a.wobble) * a.wobbleAmp * dt;
+        a.flash = Math.max(0, a.flash - dt);
+        a.trail.push({ x: a.x, y: a.y, life: 0.2 });
+        if (a.trail.length > 6) a.trail.shift();
+
+        // Check collision with explosions
+        for (const e of state.explosions) {
+          if (!a.alive) break;
+          const d = dist(e.x, e.y, a.x, a.y);
+          if (d < e.r + a.r) {
+            a.dead = true;
+            a.alive = false;
+            addCombo();
+            const totalPoints = Math.round(a.points * state.comboMultiplier);
+            state.score += totalPoints;
+            spawnParticles(a.x, a.y, 'rgba(255,100,100,', 20, 1.0);
+            spawnParticles(a.x, a.y, 'rgba(255,200,50,', 12, 0.8);
+            addFloatingText(a.x, a.y - 25, `+${totalPoints}`, '#ff6644', 18);
+            soundAlienBonus();
+            break;
+          }
+        }
+
+        // Remove if off screen
+        if (a.alive && (a.x < -100 || a.x > innerWidth + 100)) {
+          a.dead = true;
+        }
+      }
+      state.aliens = state.aliens.filter(a => !a.dead);
 
       for (const e of state.explosions) {
         e.age += dt;
@@ -472,6 +702,13 @@
         p.vy += 26 * dt;
       }
       state.particles = state.particles.filter(p => p.life > 0);
+
+      // Update floating texts
+      for (const ft of state.floatingTexts) {
+        ft.life -= dt;
+        ft.y -= 35 * dt; // float upward
+      }
+      state.floatingTexts = state.floatingTexts.filter(ft => ft.life > 0);
 
       for (const f of state.flashes) f.life -= dt;
       state.flashes = state.flashes.filter(f => f.life > 0);
@@ -565,6 +802,76 @@
       ctx.fillRect(0, groundY, innerWidth, 2);
     }
 
+    function drawAlienShip(a, t) {
+      ctx.save();
+      ctx.translate(a.x, a.y);
+      const dir = a.vx > 0 ? 1 : -1;
+      ctx.scale(dir, 1);
+
+      // Glow
+      ctx.shadowColor = a.type === 'cruiser' ? 'rgba(255,50,50,.9)' :
+                        a.type === 'fighter' ? 'rgba(255,200,50,.9)' :
+                        'rgba(100,255,100,.9)';
+      ctx.shadowBlur = 16;
+
+      const flash = a.flash > 0;
+
+      if (a.type === 'cruiser') {
+        // Big cruiser - menacing red
+        ctx.fillStyle = flash ? '#fff' : '#cc3333';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, a.r, a.r * 0.45, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = flash ? '#fff' : '#aa2222';
+        ctx.beginPath();
+        ctx.ellipse(0, -a.r * 0.2, a.r * 0.55, a.r * 0.35, 0, Math.PI, Math.PI * 2);
+        ctx.fill();
+        // Lights
+        ctx.fillStyle = '#ff4444';
+        for (let i = -2; i <= 2; i++) {
+          ctx.beginPath();
+          ctx.arc(i * a.r * 0.25, a.r * 0.15, 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else if (a.type === 'fighter') {
+        // Sleek fighter - gold/orange
+        ctx.fillStyle = flash ? '#fff' : '#dd8833';
+        ctx.beginPath();
+        ctx.moveTo(a.r, 0);
+        ctx.lineTo(-a.r * 0.7, -a.r * 0.5);
+        ctx.lineTo(-a.r * 0.4, 0);
+        ctx.lineTo(-a.r * 0.7, a.r * 0.5);
+        ctx.closePath();
+        ctx.fill();
+        // Cockpit
+        ctx.fillStyle = flash ? '#fff' : '#ffcc44';
+        ctx.beginPath();
+        ctx.ellipse(a.r * 0.15, 0, a.r * 0.25, a.r * 0.15, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Scout - green
+        ctx.fillStyle = flash ? '#fff' : '#44bb44';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, a.r, a.r * 0.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = flash ? '#fff' : '#339933';
+        ctx.beginPath();
+        ctx.ellipse(0, -a.r * 0.15, a.r * 0.4, a.r * 0.25, 0, Math.PI, Math.PI * 2);
+        ctx.fill();
+        // Blinking light
+        const blink = Math.sin(t * 8) > 0;
+        if (blink) {
+          ctx.fillStyle = '#88ff88';
+          ctx.beginPath();
+          ctx.arc(0, a.r * 0.2, 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
     function drawEntities() {
       for (const m of state.meteors) {
         drawTrail(m.trail, 'rgba(255,150,100,', 0.12);
@@ -622,6 +929,12 @@
         ctx.restore();
       }
 
+      // Draw alien ships
+      for (const a of state.aliens) {
+        drawAlienShip(a, state.time);
+        drawTrail(a.trail, 'rgba(255,100,80,', 0.08);
+      }
+
       if (state.saucer) {
         ctx.save();
         ctx.translate(state.saucer.x, state.saucer.y);
@@ -650,6 +963,20 @@
         ctx.globalAlpha = clamp(p.life, 0, 1);
         ctx.fillStyle = p.color + clamp(p.life, 0, 1) + ')';
         ctx.fillRect(p.x, p.y, p.size, p.size);
+        ctx.restore();
+      }
+
+      // Draw floating texts
+      for (const ft of state.floatingTexts) {
+        ctx.save();
+        ctx.globalAlpha = clamp(ft.life / ft.maxLife, 0, 1);
+        ctx.fillStyle = ft.color;
+        ctx.font = `900 ${ft.size}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = 'rgba(0,0,0,.7)';
+        ctx.shadowBlur = 6;
+        ctx.fillText(ft.text, ft.x, ft.y);
         ctx.restore();
       }
 
@@ -698,6 +1025,14 @@
       ctx.font = '700 12px system-ui, sans-serif';
       ctx.fillText('Wave ' + state.wave, 14, innerHeight - 14);
       ctx.fillText('Cities ' + state.cities.filter(c => c.alive).length + '/3', innerWidth - 94, innerHeight - 14);
+
+      // Combo indicator
+      if (state.comboCount >= 2 && state.comboTimer > 0) {
+        ctx.fillStyle = 'rgba(255,220,120,0.7)';
+        ctx.font = '700 11px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${state.comboMultiplier}x COMBO`, innerWidth / 2, innerHeight - 14);
+      }
       ctx.restore();
     }
 
