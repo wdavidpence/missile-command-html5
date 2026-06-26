@@ -109,9 +109,28 @@ function audioInit() {
     if (!S.audio) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
-      S.audio = new AC();
+      S.audio = new AC({ latencyHint: 'interactive' });
     }
     if (S.audio.state === 'suspended') S.audio.resume().catch(()=>{});
+  } catch(e) {}
+}
+
+function primeAudio() {
+  const ac = S.audio;
+  if (!ac || S.audioPrimed) return;
+  try {
+    const t = ac.currentTime;
+    const osc = ac.createOscillator();
+    const g = ac.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(880, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.025, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
+    osc.connect(g).connect(ac.destination);
+    osc.start(t);
+    osc.stop(t + 0.05);
+    S.audioPrimed = true;
   } catch(e) {}
 }
 
@@ -175,37 +194,36 @@ function playNoiseBurst({dur=0.12, gain=0.12, type='bandpass', freq=1200, q=0.8}
 
 // Authentic arcade sounds
 function sndLaunch() {
-  playOsc({type:'square',start:320,end:980,dur:0.08,gain:0.09});
-  playOsc({type:'sawtooth',start:820,end:360,dur:0.09,gain:0.06});
+  playOsc({type:'triangle',start:880,end:540,dur:0.08,gain:0.12});
 }
 function sndExplosion() {
-  playNoiseBurst({dur:0.16, gain:0.12, type:'bandpass', freq:900, q:0.7});
-  playOsc({type:'sawtooth',start:160,end:38,dur:0.24,gain:0.08});
+  playNoiseBurst({dur:0.16, gain:0.16, type:'bandpass', freq:900, q:0.7});
+  playOsc({type:'sawtooth',start:180,end:50,dur:0.24,gain:0.10});
 }
 function sndBigBoom() {
-  playNoiseBurst({dur:0.24, gain:0.16, type:'lowpass', freq:650, q:0.6});
-  playOsc({type:'sawtooth',start:110,end:24,dur:0.42,gain:0.10});
+  playNoiseBurst({dur:0.24, gain:0.19, type:'lowpass', freq:650, q:0.6});
+  playOsc({type:'sawtooth',start:110,end:24,dur:0.42,gain:0.12});
 }
 function sndCityHit() {
-  playOsc({type:'square',start:420,end:90,dur:0.18,gain:0.10});
-  playOsc({type:'sawtooth',start:220,end:60,dur:0.22,gain:0.08});
+  playOsc({type:'square',start:420,end:90,dur:0.18,gain:0.11});
+  playOsc({type:'sawtooth',start:220,end:60,dur:0.22,gain:0.09});
 }
 function sndMeteorCrack() {
-  playOsc({type:'square',start:1150,end:260,dur:0.05,gain:0.05});
+  playOsc({type:'square',start:1150,end:260,dur:0.05,gain:0.10});
 }
 function sndSaucerAppear() {
-  playOsc({type:'square',start:180,end:260,dur:0.08,gain:0.06});
-  playOsc({type:'square',start:180,end:260,dur:0.08,gain:0.06});
+  playOsc({type:'square',start:180,end:260,dur:0.08,gain:0.09});
+  playOsc({type:'square',start:180,end:260,dur:0.08,gain:0.09});
 }
 function sndSaucerBonus() {
   playOsc({type:'sine',start:520,end:1180,dur:0.24,gain:0.14});
 }
 function sndGameOver() {
-  playOsc({type:'sawtooth',start:240,end:48,dur:0.65,gain:0.10});
-  playOsc({type:'square',start:120,end:40,dur:0.28,gain:0.06});
+  playOsc({type:'sawtooth',start:240,end:48,dur:0.65,gain:0.12});
+  playOsc({type:'square',start:120,end:40,dur:0.28,gain:0.08});
 }
 function sndWaveStart() {
-  playOsc({type:'sine',start:500,end:860,dur:0.16,gain:0.05});
+  playOsc({type:'sine',start:500,end:860,dur:0.16,gain:0.08});
 }
 
 // ─── Resize / Layout ─────────────────────────────────────────────────
@@ -1139,6 +1157,7 @@ function startGame() {
 function onPointer(e) {
   e.preventDefault();
   audioInit();
+  primeAudio();
   const rect = canvas.getBoundingClientRect();
   const x = (e.clientX || (e.touches && e.touches[0].clientX) || innerWidth/2) - rect.left;
   const y = (e.clientY || (e.touches && e.touches[0].clientY) || innerHeight/2) - rect.top;
@@ -1151,12 +1170,14 @@ function onPointer(e) {
 
 canvas.addEventListener('pointerdown', onPointer, {passive:false});
 canvas.addEventListener('touchstart', onPointer, {passive:false});
+canvas.addEventListener('touchend', (e) => { if (!S.running || S.gameOver) onPointer(e); }, {passive:false});
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', ()=>setTimeout(resize, 100));
 window.addEventListener('keydown', (e) => {
   if (e.code==='Space'||e.code==='Enter') {
     e.preventDefault();
     audioInit();
+    primeAudio();
     if (!S.running||S.gameOver) startGame();
     else launchInterceptor(S.lastPointerX||innerWidth/2, S.lastPointerY||innerHeight*0.4);
   }
