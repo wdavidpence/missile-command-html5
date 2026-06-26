@@ -1,1040 +1,905 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="theme-color" content="#081018" />
-  <title>Pocket Shield</title>
-  <style>
-    html, body {
-      margin: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: radial-gradient(circle at top, #132033 0%, #070b12 55%, #04060a 100%);
-      touch-action: none;
-      overscroll-behavior: none;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      color: #d7ebff;
-    }
-    canvas {
-      display: block;
-      width: 100vw;
-      height: 100vh;
-      image-rendering: auto;
-      touch-action: none;
-    }
-    .hud {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      padding: max(12px, env(safe-area-inset-top)) 12px 12px;
-      box-sizing: border-box;
-      font-weight: 700;
-      text-shadow: 0 2px 8px rgba(0,0,0,.6);
-      user-select: none;
-    }
-    .panel {
-      pointer-events: none;
-      background: rgba(6, 12, 22, 0.35);
-      border: 1px solid rgba(170,220,255,0.12);
-      border-radius: 14px;
-      padding: 10px 12px;
-      backdrop-filter: blur(8px);
-      min-width: 132px;
-    }
-    .panel b { display: block; font-size: 12px; opacity: .7; letter-spacing: .08em; text-transform: uppercase; }
-    .panel span { display: block; font-size: 22px; line-height: 1.1; }
-    .center {
-      position: fixed;
-      left: 50%; top: 50%;
-      transform: translate(-50%, -50%);
-      text-align: center;
-      pointer-events: none;
-      user-select: none;
-      max-width: min(92vw, 560px);
-    }
-    .title {
-      font-size: clamp(42px, 8vw, 78px);
-      font-weight: 900;
-      letter-spacing: 0.03em;
-      color: #f2fbff;
-      text-shadow: 0 0 18px rgba(99, 194, 255, .45), 0 0 42px rgba(99,194,255,.16);
-      margin: 0 0 8px;
-    }
-    .subtitle, .hint, .small {
-      margin: 0 auto 8px;
-      color: rgba(225, 240, 255, 0.9);
-      text-shadow: 0 2px 8px rgba(0,0,0,.55);
-      line-height: 1.35;
-    }
-    .subtitle { font-size: clamp(15px, 2.7vw, 20px); }
-    .hint { font-size: clamp(14px, 2.4vw, 18px); opacity: .95; }
-    .small { font-size: 13px; opacity: .75; }
-    .badge {
-      display: inline-block;
-      margin-top: 12px;
-      padding: 7px 12px;
-      border-radius: 999px;
-      background: rgba(100, 210, 255, 0.15);
-      border: 1px solid rgba(100, 210, 255, 0.28);
-      color: #e7f7ff;
-      font-size: 14px;
-      pointer-events: none;
-    }
-    .combo {
-      position: fixed;
-      left: 50%; top: 50%;
-      transform: translate(-50%, -50%);
-      pointer-events: none;
-      user-select: none;
-      font-size: clamp(28px, 6vw, 48px);
-      font-weight: 900;
-      color: #ffe7a1;
-      text-shadow: 0 0 20px rgba(255,220,120,.8), 0 0 40px rgba(255,220,120,.4);
-      opacity: 0;
-      transition: opacity 0.15s, transform 0.3s;
-    }
-    .combo.show {
-      opacity: 1;
-      transform: translate(-50%, -60%);
-    }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#000000" />
+<title>Missile Command</title>
+<style>
+  html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#000; touch-action:none; overscroll-behavior:none; font-family: "Courier New", monospace; }
+  canvas { display:block; width:100vw; height:100vh; image-rendering:pixelated; touch-action:none; }
+  .hud { position:fixed; inset:0; pointer-events:none; display:flex; flex-direction:column; align-items:center; padding:8px 12px; box-sizing:border-box; user-select:none; }
+  .score-bar { display:flex; justify-content:space-between; width:100%; max-width:600px; }
+  .score-item { color:#00ff41; font-size:clamp(11px,2.2vw,15px); font-weight:700; text-shadow:0 0 6px rgba(0,255,65,.6); letter-spacing:.05em; }
+  .wave-announce { position:fixed; left:50%; top:38%; transform:translate(-50%,-50%); color:#00ff41; font-size:clamp(28px,6vw,48px); font-weight:900; text-shadow:0 0 20px rgba(0,255,65,.8),0 0 40px rgba(0,255,65,.4); opacity:0; pointer-events:none; transition:opacity .3s; letter-spacing:.15em; }
+  .wave-announce.show { opacity:1; }
+  .overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; user-select:none; }
+  .overlay.hidden { display:none; }
+  .overlay h1 { color:#00ff41; font-size:clamp(32px,7vw,56px); text-shadow:0 0 18px rgba(0,255,65,.7),0 0 40px rgba(0,255,65,.3); margin:0 0 10px; letter-spacing:.08em; }
+  .overlay p { color:#00cc33; font-size:clamp(12px,2.4vw,16px); margin:4px auto; text-shadow:0 0 8px rgba(0,255,65,.4); }
+  .overlay .blink { animation:blink 1s step-end infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .combo { position:fixed; left:50%; top:44%; transform:translate(-50%,-50%); color:#ffff00; font-size:clamp(24px,5vw,40px); font-weight:900; text-shadow:0 0 16px rgba(255,255,0,.8); opacity:0; pointer-events:none; user-select:none; }
+  .combo.show { opacity:1; }
+  /* CRT scanline overlay */
+  .scanlines { position:fixed; inset:0; pointer-events:none; background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.12) 2px,rgba(0,0,0,.12) 4px); z-index:10; }
+</style>
 </head>
 <body>
-  <canvas id="game"></canvas>
-  <div class="hud">
-    <div class="panel"><b>Score</b><span id="score">0</span></div>
-    <div class="panel" style="text-align:right"><b>High</b><span id="high">0</span></div>
+<canvas id="game"></canvas>
+<div class="scanlines"></div>
+<div class="hud">
+  <div class="score-bar">
+    <span class="score-item" id="scoreLabel">SCORE: 0</span>
+    <span class="score-item" id="waveLabel">WAVE 1</span>
+    <span class="score-item" id="highLabel">HIGH: 0</span>
   </div>
-  <div id="combo" class="combo"></div>
-  <div id="overlay" class="center">
-    <h1 class="title">Pocket Shield</h1>
-    <p class="subtitle">Defend the city from meteors and alien ships.</p>
-    <p class="hint">Tap anywhere to launch an interceptor. Shoot alien ships for bonus points!</p>
-    <p class="small">Works with touch, mouse, and iPhone Safari.</p>
-    <div class="badge">Tap to start</div>
-  </div>
-  <script>
-  (() => {
-    'use strict';
+</div>
+<div id="waveAnnounce" class="wave-announce"></div>
+<div id="combo" class="combo"></div>
+<div id="overlay" class="overlay">
+  <h1>MISSILE COMMAND</h1>
+  <p>Defend your cities from incoming meteors!</p>
+  <p>Tap to launch missiles. Dig terrain to deflect attacks.</p>
+  <p class="blink" style="margin-top:18px;">[ TAP TO START ]</p>
+</div>
+<script>
+(() => {
+'use strict';
 
-    const canvas = document.getElementById('game');
-    const ctx = canvas.getContext('2d');
-    const scoreEl = document.getElementById('score');
-    const highEl = document.getElementById('high');
-    const comboEl = document.getElementById('combo');
-    const overlay = document.getElementById('overlay');
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('scoreLabel');
+const waveEl = document.getElementById('waveLabel');
+const highEl = document.getElementById('highLabel');
+const waveAnnEl = document.getElementById('waveAnnounce');
+const comboEl = document.getElementById('combo');
+const overlayEl = document.getElementById('overlay');
 
-    const state = {
-      running: false,
-      gameOver: false,
-      score: 0,
-      high: Number(localStorage.getItem('pocket_shield_high') || 0),
-      time: 0,
-      wave: 1,
-      spawnTimer: 0,
-      spawnInterval: 1.35,
-      meteorsLeftInWave: 0,
-      explosions: [],
-      interceptors: [],
-      meteors: [],
-      particles: [],
-      stars: [],
-      flashes: [],
-      lastPointerX: 0,
-      lastPointerY: 0,
-      audio: null,
-      fireCooldown: 0,
-      hintTimer: 0,
-      saucer: null,
-      saucerTimer: 0,
-      saucerSpawnedThisWave: false,
-      lives: 3,
-      cities: [],
-      aliens: [],
-      alienTimer: 0,
-      comboCount: 0,
-      comboTimer: 0,
-      comboMultiplier: 1,
-      floatingTexts: [],
-    };
+// ─── State ───────────────────────────────────────────────────────────
+const S = {
+  running: false, gameOver: false, score: 0,
+  high: Number(localStorage.getItem('mc_high') || 0),
+  time: 0, wave: 0, lives: 3,
+  missilesLeftInWave: 0, spawnTimer: 0, spawnInterval: 1.4,
+  explosions: [], interceptors: [], meteors: [],
+  particles: [], floatingTexts: [], stars: [],
+  terrain: null, groundY: 0,
+  basePositions: [], cityPositions: [],
+  lastPointerX: 0, lastPointerY: 0,
+  audio: null, fireCooldown: 0,
+  comboCount: 0, comboTimer: 0, comboMult: 1,
+  waveAnnTimer: 0, screenShake: 0,
+  // Missile ammo per base
+  baseAmmo: [],
+  // Meteor split tracking
+  totalMeteorsInWave: 0,
+};
 
-    function rand(min, max) { return Math.random() * (max - min) + min; }
-    function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-    function lerp(a, b, t) { return a + (b - a) * t; }
-    function dist(a, b, c, d) { return Math.hypot(a - c, b - d); }
+function rand(a,b){return Math.random()*(b-a)+a;}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function lerp(a,b,t){return a+(b-a)*t;}
+function dist(x1,y1,x2,y2){return Math.hypot(x2-x1,y2-y1);}
 
-    function resize() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.floor(innerWidth * dpr);
-      canvas.height = Math.floor(innerHeight * dpr);
-      canvas.style.width = innerWidth + 'px';
-      canvas.style.height = innerHeight + 'px';
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      buildStars();
-      layoutCities();
+// ─── Audio ───────────────────────────────────────────────────────────
+function audioInit() {
+  try {
+    if (!S.audio) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      S.audio = new AC();
     }
+    if (S.audio.state === 'suspended') S.audio.resume().catch(()=>{});
+  } catch(e) {}
+}
 
-    function buildStars() {
-      const count = Math.round((innerWidth * innerHeight) / 15000);
-      state.stars = Array.from({ length: count }, () => ({
-        x: Math.random() * innerWidth,
-        y: Math.random() * innerHeight,
-        r: rand(0.6, 1.8),
-        a: rand(0.15, 0.9),
-        s: rand(0.15, 0.6)
-      }));
+function playOsc(cfg) {
+  const ac = S.audio; if (!ac) return;
+  const run = () => {
+    const t = ac.currentTime;
+    const osc = ac.createOscillator();
+    const g = ac.createGain();
+    osc.type = cfg.type || 'sine';
+    osc.frequency.setValueAtTime(cfg.start||440, t);
+    if (cfg.end !== undefined) {
+      osc.frequency.exponentialRampToValueAtTime(Math.max(1,cfg.end), t + (cfg.dur||0.1));
     }
+    const d = cfg.dur||0.1;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(cfg.gain||0.1, t+0.004);
+    g.gain.setValueAtTime(cfg.gain||0.1, t+d*0.5);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+d);
+    osc.connect(g).connect(ac.destination);
+    osc.start(t); osc.stop(t+d+0.02);
+  };
+  if (ac.state==='running') { run(); return; }
+  if (!S._resumeP) {
+    S._resumeP = ac.resume().catch(()=>{}).finally(()=>{ S._resumeP=null; });
+  }
+  S._resumeP.then(()=>{ if(ac.state==='running') run(); }).catch(()=>{});
+}
 
-    function layoutCities() {
-      const baseY = innerHeight - Math.max(54, innerHeight * 0.08);
-      const spread = Math.min(320, innerWidth * 0.38);
-      state.cities = [
-        { x: innerWidth / 2 - spread, y: baseY, alive: true },
-        { x: innerWidth / 2, y: baseY, alive: true },
-        { x: innerWidth / 2 + spread, y: baseY, alive: true }
-      ];
+// Authentic arcade sounds
+function sndLaunch() {
+  playOsc({type:'sawtooth',start:300,end:900,dur:0.12,gain:0.10});
+}
+function sndExplosion() {
+  playOsc({type:'sawtooth',start:180,end:40,dur:0.28,gain:0.14});
+}
+function sndBigBoom() {
+  playOsc({type:'sawtooth',start:120,end:25,dur:0.45,gain:0.18});
+}
+function sndCityHit() {
+  // Harsh noise-like sound
+  playOsc({type:'square',start:400,end:80,dur:0.5,gain:0.15});
+  playOsc({type:'sawtooth',start:200,end:60,dur:0.4,gain:0.12});
+}
+function sndMeteorCrack() {
+  playOsc({type:'square',start:1200,end:200,dur:0.08,gain:0.08});
+}
+function sndSaucer() {
+  playOsc({type:'square',start:180,end:320,dur:0.15,gain:0.07});
+}
+function sndGameOver() {
+  playOsc({type:'sawtooth',start:220,end:50,dur:0.8,gain:0.12});
+}
+function sndWaveStart() {
+  playOsc({type:'sine',start:520,end:880,dur:0.2,gain:0.06});
+}
+
+// ─── Resize / Layout ─────────────────────────────────────────────────
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  canvas.width = Math.floor(innerWidth*dpr);
+  canvas.height = Math.floor(innerHeight*dpr);
+  canvas.style.width = innerWidth+'px';
+  canvas.style.height = innerHeight+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  S.groundY = innerHeight - Math.max(48, innerHeight*0.08);
+  initTerrain();
+  layoutEntities();
+  buildStars();
+}
+
+function initTerrain() {
+  const w = Math.ceil(canvas.width / (Math.min(window.devicePixelRatio||1,2)));
+  S.terrain = new Float32Array(w);
+}
+
+function layoutEntities() {
+  const w = innerWidth;
+  const n = 6; // 3 cities + 3 bases
+  const spacing = w / (n+1);
+  S.cityPositions = [];
+  S.basePositions = [];
+  // Alternating: city(0), base(1), city(2), base(3), city(4), base(5)
+  for (let i = 0; i < n; i++) {
+    const x = spacing * (i+1);
+    if (i % 2 === 0) {
+      S.cityPositions.push({x, y: S.groundY, alive: true, rubble: false});
+    } else {
+      S.basePositions.push({x, y: S.groundY, ammo: 18});
     }
+  }
+  // Reset ammo
+  S.baseAmmo = S.basePositions.map(b => b.ammo);
+}
 
-    // --- Audio: oscillator-based sounds (works reliably on iOS Safari) ---
-    function audioInit() {
-      try {
-        if (!state.audio) {
-          const AudioCtx = window.AudioContext || window.webkitAudioContext;
-          if (!AudioCtx) return;
-          state.audio = new AudioCtx();
-        }
-        if (state.audio.state === 'suspended') {
-          state.audio.resume().catch(() => {});
-        }
-      } catch (_) {}
+function buildStars() {
+  const count = Math.round((innerWidth*innerHeight)/25000);
+  S.stars = Array.from({length:count}, ()=>({
+    x: Math.random()*innerWidth,
+    y: Math.random()*innerHeight*0.6,
+    r: rand(0.5,1.5), a: rand(0.2,0.7), s: rand(0.3,1.2)
+  }));
+}
+
+// ─── Terrain Digging ─────────────────────────────────────────────────
+function digTerrain(cx, cy, radius) {
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  const pxRadius = radius / dpr;
+  const startX = Math.max(0, Math.floor(cx - pxRadius));
+  const endX = Math.min(S.terrain.length-1, Math.ceil(cx + pxRadius));
+  for (let x = startX; x <= endX; x++) {
+    const dx = x - cx;
+    const depth = Math.sqrt(Math.max(0, pxRadius*pxRadius - dx*dx));
+    // Dig semi-circle below the explosion center
+    const digDepth = cy + depth - S.groundY;
+    if (digDepth > 0) {
+      S.terrain[x] = Math.max(S.terrain[x], digDepth);
     }
+  }
+}
 
-    function playOsc(opts) {
-      const ac = state.audio;
-      if (!ac) return;
-      const run = () => {
-        const t = ac.currentTime;
-        const osc = ac.createOscillator();
-        const g = ac.createGain();
-        osc.type = opts.type || 'sine';
-        osc.frequency.setValueAtTime(opts.start || 440, t);
-        if (opts.end !== undefined) {
-          osc.frequency.exponentialRampToValueAtTime(Math.max(1, opts.end), t + (opts.duration || 0.1));
-        }
-        const dur = opts.duration || 0.1;
-        const pk = opts.gain || 0.1;
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.exponentialRampToValueAtTime(pk, t + 0.005);
-        g.gain.setValueAtTime(pk, t + dur * 0.6);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-        osc.connect(g).connect(ac.destination);
-        osc.start(t);
-        osc.stop(t + dur + 0.02);
-      };
-      if (ac.state === 'running') {
-        run();
-        return;
-      }
-      if (!state.audioResumePromise) {
-        state.audioResumePromise = ac.resume().catch(() => {}).finally(() => {
-          state.audioResumePromise = null;
-        });
-      }
-      state.audioResumePromise.then(() => {
-        if (ac.state === 'running') run();
-      }).catch(() => {});
-    }
+function getTerrainHeight(x) {
+  const ix = clamp(Math.floor(x), 0, S.terrain.length-1);
+  return S.terrain[ix];
+}
 
+function drawTerrain() {
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  ctx.strokeStyle = '#00ff41';
+  ctx.lineWidth = 2;
+  ctx.shadowColor = 'rgba(0,255,65,.5)';
+  ctx.shadowBlur = 4;
+  ctx.beginPath();
+  for (let x = 0; x < S.terrain.length; x++) {
+    const y = S.groundY + S.terrain[x];
+    if (x === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  // Fill below ground
+  ctx.fillStyle = '#001a00';
+  ctx.beginPath();
+  ctx.moveTo(0, S.groundY + S.terrain[0]);
+  for (let x = 0; x < S.terrain.length; x++) {
+    ctx.lineTo(x, S.groundY + S.terrain[x]);
+  }
+  ctx.lineTo(S.terrain.length, innerHeight);
+  ctx.lineTo(0, innerHeight);
+  ctx.closePath();
+  ctx.fill();
+}
 
-    function soundFire() {
-      playOsc({ type: 'triangle', start: 880, end: 540, duration: 0.08, gain: 0.12 });
-    }
-    function soundBoom(intensity = 1) {
-      playOsc({ type: 'sawtooth', start: 180, end: 50, duration: 0.22 + 0.12 * intensity, gain: 0.14 + 0.05 * intensity });
-    }
-    function soundHit() {
-      playOsc({ type: 'square', start: 980, end: 260, duration: 0.14, gain: 0.10 });
-    }
-    function soundGameOver() {
-      playOsc({ type: 'sawtooth', start: 220, end: 70, duration: 0.65, gain: 0.12 });
-    }
-    function soundAlienBonus() {
-      playOsc({ type: 'sine', start: 520, end: 1180, duration: 0.25, gain: 0.14 });
-    }
-    function soundAlienAlarm() {
-      playOsc({ type: 'square', start: 180, end: 320, duration: 0.12, gain: 0.08 });
-    }
-    function soundLaser() {
-      playOsc({ type: 'sawtooth', start: 1200, end: 400, duration: 0.15, gain: 0.10 });
-    }
+// ─── Stars ───────────────────────────────────────────────────────────
+function drawStars(t) {
+  for (const s of S.stars) {
+    const tw = 0.5 + Math.sin(t*s.s + s.x*0.01)*0.5;
+    ctx.globalAlpha = s.a * tw;
+    ctx.fillStyle = '#aaccff';
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
 
-    function spawnParticles(x, y, color, count, speed = 1) {
-      for (let i = 0; i < count; i++) {
-        const ang = Math.random() * Math.PI * 2;
-        const sp = rand(40, 260) * speed;
-        state.particles.push({
-          x, y,
-          vx: Math.cos(ang) * sp,
-          vy: Math.sin(ang) * sp,
-          life: rand(0.5, 1.1),
-          color,
-          size: rand(1.5, 3.8)
-        });
-      }
-    }
-
-    function addFloatingText(x, y, text, color = '#ffe7a1', size = 20) {
-      state.floatingTexts.push({ x, y, text, color, size, life: 1.2, maxLife: 1.2 });
-    }
-
-    function createExplosion(x, y, maxR = 70) {
-      state.explosions.push({ x, y, r: 1, maxR, life: 0.62, age: 0 });
-      spawnParticles(x, y, 'rgba(120,220,255,', 14, 0.8);
-      soundBoom(maxR / 80);
-      state.flashes.push({ x, y, life: 0.12 });
-    }
-
-    function launchInterceptor(x, y) {
-      if (state.gameOver || !state.running || state.fireCooldown > 0) return;
-      const base = closestLivingCity();
-      if (!base) return;
-      const dx = x - base.x;
-      const dy = y - base.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const speed = 560;
-      state.interceptors.push({
-        x: base.x,
-        y: base.y - 8,
-        vx: dx / len * speed,
-        vy: dy / len * speed,
-        tx: x,
-        ty: y,
-        trail: []
-      });
-      state.fireCooldown = 0.14;
-      state.lastPointerX = x;
-      state.lastPointerY = y;
-      soundFire();
-      state.hintTimer = 6;
-    }
-
-    function closestLivingCity() {
-      let best = null;
-      let bestD = Infinity;
-      for (const c of state.cities) {
-        if (!c.alive) continue;
-        const d = Math.abs(c.x - innerWidth / 2) + (innerHeight - c.y);
-        if (d < bestD) { best = c; bestD = d; }
-      }
-      return best;
-    }
-
-    function startGame() {
-      state.running = true;
-      state.gameOver = false;
-      state.score = 0;
-      state.wave = 1;
-      state.spawnTimer = 0;
-      state.spawnInterval = 1.35;
-      state.meteorsLeftInWave = 0;
-      state.explosions = [];
-      state.interceptors = [];
-      state.meteors = [];
-      state.aliens = [];
-      state.saucer = null;
-      state.saucerTimer = 0;
-      state.saucerSpawnedThisWave = false;
-      state.particles = [];
-      state.flashes = [];
-      state.fireCooldown = 0;
-      state.hintTimer = 4;
-      state.lives = 3;
-      state.alienTimer = 0;
-      state.comboCount = 0;
-      state.comboTimer = 0;
-      state.comboMultiplier = 1;
-      state.floatingTexts = [];
-      layoutCities();
-      overlay.style.display = 'none';
-      spawnWave();
-      syncHud();
-    }
-
-    function gameOver() {
-      state.running = false;
-      state.gameOver = true;
-      if (state.score > state.high) {
-        state.high = state.score;
-        localStorage.setItem('pocket_shield_high', String(state.high));
-      }
-      syncHud();
-      overlay.style.display = 'block';
-      overlay.innerHTML = `
-        <h1 class="title">Game Over</h1>
-        <p class="subtitle">Final score: <b>${state.score}</b> — High score: <b>${state.high}</b></p>
-        <p class="hint">Tap to play again.</p>
-        <p class="small">Tip: Fire early so explosions overlap the falling meteors.</p>
-        <div class="badge">Tap to restart</div>
-      `;
-      soundGameOver();
-    }
-
-    function spawnWave() {
-      state.wave += 1;
-      state.meteorsLeftInWave = 4 + Math.floor(state.wave * 1.4);
-      state.spawnInterval = Math.max(0.38, 1.35 - state.wave * 0.06);
-      state.spawnTimer = 0.2;
-      state.hintTimer = 0.5;
-      state.saucerSpawnedThisWave = false;
-      state.saucerTimer = state.wave % 4 === 0 ? 2.4 : 0;
-      // Reset alien timer - aliens appear every wave, more frequently as waves progress
-      state.alienTimer = 3 + Math.max(0, 6 - state.wave); // starts at 3s, decreases each wave
-      spawnParticles(innerWidth / 2, innerHeight * 0.22, 'rgba(120,220,255,', 26, 0.5);
-      playOsc({ type: 'sine', start: 520, end: 1180, duration: 0.22, gain: 0.08 });
-    }
-
-    function spawnMeteor() {
-      const x = rand(16, innerWidth - 16);
-      const targetX = rand(innerWidth * 0.1, innerWidth * 0.9);
-      const y = -20;
-      const speed = rand(58, 94) + state.wave * 5;
-      const dx = targetX - x;
-      const dy = innerHeight + 80 - y;
-      const len = Math.hypot(dx, dy) || 1;
-      const size = rand(10, 18) + state.wave * 0.5;
-      state.meteors.push({
-        x, y,
-        vx: dx / len * speed,
-        vy: dy / len * speed,
-        r: size,
-        spin: rand(-2, 2),
-        rot: rand(0, Math.PI * 2),
-        alive: true,
-        trail: []
-      });
-    }
-
-    function spawnSaucer() {
-      if (state.saucer || state.saucerSpawnedThisWave) return;
-      const fromLeft = Math.random() < 0.5;
-      const y = rand(innerHeight * 0.16, innerHeight * 0.34);
-      const speed = rand(120, 180);
-      state.saucer = {
-        x: fromLeft ? -44 : innerWidth + 44,
-        y,
-        vx: fromLeft ? speed : -speed,
-        r: 16,
-        wobble: rand(0, Math.PI * 2),
-        alive: true,
-        flash: 0,
-        type: 'saucer'
-      };
-      state.saucerSpawnedThisWave = true;
-      soundAlienAlarm();
-    }
-
-    // --- New: Horizontal Alien Ships ---
-    function spawnAlienShip() {
-      if (state.aliens.length >= 3) return; // max 3 on screen
-      const fromLeft = Math.random() < 0.5;
-      const y = rand(innerHeight * 0.1, innerHeight * 0.4);
-      const speed = rand(100, 160) + state.wave * 3;
-      const size = rand(18, 28);
-      // Determine ship type for different point values
-      const roll = Math.random();
-      let type, points;
-      if (roll < 0.5) {
-        type = 'scout'; points = 150; // basic scout
-      } else if (roll < 0.8) {
-        type = 'fighter'; points = 300; // faster, worth more
-      } else {
-        type = 'cruiser'; points = 500; // slow, big, worth lots
-      }
-
-      state.aliens.push({
-        x: fromLeft ? -60 : innerWidth + 60,
-        y,
-        vx: fromLeft ? speed : -speed,
-        r: size,
-        wobble: rand(0, Math.PI * 2),
-        wobbleSpeed: rand(2, 5),
-        wobbleAmp: rand(15, 35),
-        alive: true,
-        flash: 0,
-        type,
-        points,
-        trail: []
-      });
-      soundAlienAlarm();
-    }
-
-    function addCombo() {
-      state.comboCount++;
-      state.comboTimer = 2.0; // 2 second window for combo
-      state.comboMultiplier = Math.min(1 + state.comboCount, 8); // max 8x
-      if (state.comboCount >= 2) {
-        showCombo(state.comboMultiplier);
-      }
-    }
-
-    function showCombo(multiplier) {
-      comboEl.textContent = `${multiplier}x COMBO!`;
-      comboEl.classList.add('show');
-      setTimeout(() => comboEl.classList.remove('show'), 800);
-    }
-
-    function syncHud() {
-      scoreEl.textContent = state.score;
-      highEl.textContent = state.high;
-    }
-
-    function update(dt) {
-      if (!state.running) return;
-      state.time += dt;
-      state.spawnTimer -= dt;
-      state.fireCooldown = Math.max(0, state.fireCooldown - dt);
-      state.hintTimer = Math.max(0, state.hintTimer - dt);
-
-      // Combo timer
-      if (state.comboTimer > 0) {
-        state.comboTimer -= dt;
-        if (state.comboTimer <= 0) {
-          state.comboCount = 0;
-          state.comboMultiplier = 1;
-        }
-      }
-
-      // Alien ship spawning
-      if (state.alienTimer > 0) {
-        state.alienTimer -= dt;
-        if (state.alienTimer <= 0) {
-          spawnAlienShip();
-          // Next alien appears faster as waves progress
-          state.alienTimer = Math.max(1.5, 4 - state.wave * 0.25) + rand(0, 2);
-        }
-      }
-
-      if (state.spawnTimer <= 0 && state.meteorsLeftInWave > 0) {
-        spawnMeteor();
-        state.meteorsLeftInWave -= 1;
-        state.spawnTimer = state.spawnInterval * rand(0.72, 1.18);
-      } else if (state.meteorsLeftInWave <= 0 && state.meteors.length === 0 && state.interceptors.length === 0 && state.explosions.length === 0) {
-        spawnWave();
-      }
-
-      for (const i of state.interceptors) {
-        i.trail.push({ x: i.x, y: i.y, life: 0.16 });
-        if (i.trail.length > 8) i.trail.shift();
-        i.x += i.vx * dt;
-        i.y += i.vy * dt;
-        if (dist(i.x, i.y, i.tx, i.ty) < 16) {
-          createExplosion(i.tx, i.ty, 76 + state.wave * 0.8);
-          i.dead = true;
-        }
-        if (i.x < -40 || i.x > innerWidth + 40 || i.y < -40 || i.y > innerHeight + 40) i.dead = true;
-      }
-      state.interceptors = state.interceptors.filter(i => !i.dead);
-
-      for (const m of state.meteors) {
-        m.rot += m.spin * dt;
-        m.x += m.vx * dt;
-        m.y += m.vy * dt;
-        m.trail.push({ x: m.x, y: m.y, life: 0.26 });
-        if (m.trail.length > 10) m.trail.shift();
-        if (m.y > innerHeight - 34) {
-          m.dead = true;
-          const city = hitCity(m.x);
-          if (city) {
-            city.alive = false;
-            state.lives = Math.max(0, state.lives - 1);
-            spawnParticles(city.x, city.y - 18, 'rgba(255,120,100,', 28, 1.1);
-            soundHit();
-            if (state.lives <= 0) {
-              setTimeout(gameOver, 20);
-            }
-          }
-        }
-      }
-      state.meteors = state.meteors.filter(m => !m.dead);
-
-      if (state.saucerTimer > 0) {
-        state.saucerTimer -= dt;
-        if (state.saucerTimer <= 0) spawnSaucer();
-      }
-
-      if (state.saucer) {
-        state.saucer.wobble += dt * 4.5;
-        state.saucer.x += state.saucer.vx * dt;
-        state.saucer.y += Math.sin(state.saucer.wobble) * 10 * dt;
-        state.saucer.flash = Math.max(0, state.saucer.flash - dt);
-        for (const e of state.explosions) {
-          if (!state.saucer) break;
-          const d = dist(e.x, e.y, state.saucer.x, state.saucer.y);
-          if (d < e.r + state.saucer.r) {
-            const bonus = 300 + state.wave * 20;
-            addCombo();
-            const totalBonus = Math.round(bonus * state.comboMultiplier);
-            state.score += totalBonus;
-            spawnParticles(state.saucer.x, state.saucer.y, 'rgba(255,220,120,', 24, 1.2);
-            addFloatingText(state.saucer.x, state.saucer.y - 30, `+${totalBonus}`, '#ffe7a1', 22);
-            soundAlienBonus();
-            state.saucer = null;
-            break;
-          }
-        }
-        if (state.saucer && (state.saucer.x < -80 || state.saucer.x > innerWidth + 80)) {
-          state.saucer = null;
-        }
-      }
-
-      // Update alien ships
-      for (const a of state.aliens) {
-        a.wobble += dt * a.wobbleSpeed;
-        a.x += a.vx * dt;
-        a.y += Math.sin(a.wobble) * a.wobbleAmp * dt;
-        a.flash = Math.max(0, a.flash - dt);
-        a.trail.push({ x: a.x, y: a.y, life: 0.2 });
-        if (a.trail.length > 6) a.trail.shift();
-
-        // Check collision with explosions
-        for (const e of state.explosions) {
-          if (!a.alive) break;
-          const d = dist(e.x, e.y, a.x, a.y);
-          if (d < e.r + a.r) {
-            a.dead = true;
-            a.alive = false;
-            addCombo();
-            const totalPoints = Math.round(a.points * state.comboMultiplier);
-            state.score += totalPoints;
-            spawnParticles(a.x, a.y, 'rgba(255,100,100,', 20, 1.0);
-            spawnParticles(a.x, a.y, 'rgba(255,200,50,', 12, 0.8);
-            addFloatingText(a.x, a.y - 25, `+${totalPoints}`, '#ff6644', 18);
-            soundAlienBonus();
-            break;
-          }
-        }
-
-        // Remove if off screen
-        if (a.alive && (a.x < -100 || a.x > innerWidth + 100)) {
-          a.dead = true;
-        }
-      }
-      state.aliens = state.aliens.filter(a => !a.dead);
-
-      for (const e of state.explosions) {
-        e.age += dt;
-        e.life -= dt;
-        e.r = lerp(0, e.maxR, Math.min(1, e.age / 0.12));
-        if (e.life <= 0) e.dead = true;
-      }
-
-      for (const e of state.explosions) {
-        for (const m of state.meteors) {
-          if (m.dead) continue;
-          const d = dist(e.x, e.y, m.x, m.y);
-          if (d < e.r + m.r) {
-            m.dead = true;
-            state.score += Math.round(10 + state.wave * 2 + Math.max(0, (e.maxR - d) * 0.5));
-            spawnParticles(m.x, m.y, 'rgba(255,210,130,', 18, 0.9);
-          }
-        }
-      }
-
-      state.explosions = state.explosions.filter(e => !e.dead);
-      state.meteors = state.meteors.filter(m => !m.dead);
-
-      for (const p of state.particles) {
-        p.life -= dt;
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        p.vy += 26 * dt;
-      }
-      state.particles = state.particles.filter(p => p.life > 0);
-
-      // Update floating texts
-      for (const ft of state.floatingTexts) {
-        ft.life -= dt;
-        ft.y -= 35 * dt; // float upward
-      }
-      state.floatingTexts = state.floatingTexts.filter(ft => ft.life > 0);
-
-      for (const f of state.flashes) f.life -= dt;
-      state.flashes = state.flashes.filter(f => f.life > 0);
-
-      if (state.score > state.high) {
-        state.high = state.score;
-        localStorage.setItem('pocket_shield_high', String(state.high));
-      }
-      syncHud();
-    }
-
-    function hitCity(x) {
-      let best = null;
-      let bestD = 50;
-      for (const c of state.cities) {
-        if (!c.alive) continue;
-        const d = Math.abs(c.x - x);
-        if (d < bestD) { best = c; bestD = d; }
-      }
-      return best;
-    }
-
-    function drawBackground(t) {
-      const g = ctx.createLinearGradient(0, 0, 0, innerHeight);
-      g.addColorStop(0, '#111f35');
-      g.addColorStop(0.4, '#0a1220');
-      g.addColorStop(1, '#04060a');
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, innerWidth, innerHeight);
-
-      ctx.save();
-      for (const s of state.stars) {
-        const tw = 0.5 + Math.sin(t * 1.7 + s.x * 0.01 + s.y * 0.02) * 0.5;
-        ctx.globalAlpha = s.a * tw;
-        ctx.fillStyle = '#dff6ff';
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-        ctx.fill();
+// ─── Cities ──────────────────────────────────────────────────────────
+function drawCities() {
+  for (const c of S.cityPositions) {
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    if (!c.alive) {
+      // Rubble
+      ctx.fillStyle = '#334433';
+      ctx.globalAlpha = 0.5;
+      for (let i = -3; i <= 3; i++) {
+        ctx.fillRect(i*5-2, -2, 4, 3);
       }
       ctx.restore();
-
-      const horizon = innerHeight - 44;
-      const glow = ctx.createLinearGradient(0, horizon - 90, 0, innerHeight);
-      glow.addColorStop(0, 'rgba(100,210,255,0)');
-      glow.addColorStop(1, 'rgba(100,210,255,0.16)');
-      ctx.fillStyle = glow;
-      ctx.fillRect(0, horizon - 90, innerWidth, 130);
-
-      ctx.fillStyle = '#203552';
-      ctx.fillRect(0, horizon, innerWidth, innerHeight - horizon);
+      continue;
     }
-
-    function drawCities() {
-      const groundY = innerHeight - 44;
-      for (const c of state.cities) {
-        ctx.save();
-        ctx.translate(c.x, c.y);
-        ctx.globalAlpha = c.alive ? 1 : 0.28;
-        if (c.alive) {
-          ctx.fillStyle = '#4de0ff';
-          ctx.shadowColor = 'rgba(77,224,255,.7)';
-          ctx.shadowBlur = 14;
-        } else {
-          ctx.fillStyle = '#5f6570';
-          ctx.shadowBlur = 0;
-        }
-        ctx.beginPath();
-        ctx.moveTo(-18, 0);
-        ctx.lineTo(-14, -20);
-        ctx.lineTo(-8, -20);
-        ctx.lineTo(-8, -8);
-        ctx.lineTo(-2, -8);
-        ctx.lineTo(-2, -24);
-        ctx.lineTo(2, -24);
-        ctx.lineTo(2, -8);
-        ctx.lineTo(10, -8);
-        ctx.lineTo(10, -18);
-        ctx.lineTo(16, -18);
-        ctx.lineTo(18, 0);
-        ctx.closePath();
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = c.alive ? '#dff7ff' : '#959aa5';
-        ctx.fillRect(-22, 0, 44, 6);
-        ctx.restore();
-      }
-
-      ctx.fillStyle = '#1a2b40';
-      ctx.fillRect(0, groundY + 6, innerWidth, innerHeight - groundY);
-      ctx.fillStyle = 'rgba(100,220,255,0.12)';
-      ctx.fillRect(0, groundY, innerWidth, 2);
-    }
-
-    function drawAlienShip(a, t) {
-      ctx.save();
-      ctx.translate(a.x, a.y);
-      const dir = a.vx > 0 ? 1 : -1;
-      ctx.scale(dir, 1);
-
-      // Glow
-      ctx.shadowColor = a.type === 'cruiser' ? 'rgba(255,50,50,.9)' :
-                        a.type === 'fighter' ? 'rgba(255,200,50,.9)' :
-                        'rgba(100,255,100,.9)';
-      ctx.shadowBlur = 16;
-
-      const flash = a.flash > 0;
-
-      if (a.type === 'cruiser') {
-        // Big cruiser - menacing red
-        ctx.fillStyle = flash ? '#fff' : '#cc3333';
-        ctx.beginPath();
-        ctx.ellipse(0, 0, a.r, a.r * 0.45, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = flash ? '#fff' : '#aa2222';
-        ctx.beginPath();
-        ctx.ellipse(0, -a.r * 0.2, a.r * 0.55, a.r * 0.35, 0, Math.PI, Math.PI * 2);
-        ctx.fill();
-        // Lights
-        ctx.fillStyle = '#ff4444';
-        for (let i = -2; i <= 2; i++) {
-          ctx.beginPath();
-          ctx.arc(i * a.r * 0.25, a.r * 0.15, 1.5, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      } else if (a.type === 'fighter') {
-        // Sleek fighter - gold/orange
-        ctx.fillStyle = flash ? '#fff' : '#dd8833';
-        ctx.beginPath();
-        ctx.moveTo(a.r, 0);
-        ctx.lineTo(-a.r * 0.7, -a.r * 0.5);
-        ctx.lineTo(-a.r * 0.4, 0);
-        ctx.lineTo(-a.r * 0.7, a.r * 0.5);
-        ctx.closePath();
-        ctx.fill();
-        // Cockpit
-        ctx.fillStyle = flash ? '#fff' : '#ffcc44';
-        ctx.beginPath();
-        ctx.ellipse(a.r * 0.15, 0, a.r * 0.25, a.r * 0.15, 0, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        // Scout - green
-        ctx.fillStyle = flash ? '#fff' : '#44bb44';
-        ctx.beginPath();
-        ctx.ellipse(0, 0, a.r, a.r * 0.35, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = flash ? '#fff' : '#339933';
-        ctx.beginPath();
-        ctx.ellipse(0, -a.r * 0.15, a.r * 0.4, a.r * 0.25, 0, Math.PI, Math.PI * 2);
-        ctx.fill();
-        // Blinking light
-        const blink = Math.sin(t * 8) > 0;
-        if (blink) {
-          ctx.fillStyle = '#88ff88';
-          ctx.beginPath();
-          ctx.arc(0, a.r * 0.2, 2, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      ctx.shadowBlur = 0;
-      ctx.restore();
-    }
-
-    function drawEntities() {
-      for (const m of state.meteors) {
-        drawTrail(m.trail, 'rgba(255,150,100,', 0.12);
-        ctx.save();
-        ctx.translate(m.x, m.y);
-        ctx.rotate(m.rot);
-        const grd = ctx.createRadialGradient(-m.r * 0.3, -m.r * 0.3, 1, 0, 0, m.r * 1.5);
-        grd.addColorStop(0, '#ffe7b7');
-        grd.addColorStop(0.5, '#ff9b4d');
-        grd.addColorStop(1, '#51270f');
-        ctx.fillStyle = grd;
-        ctx.shadowColor = 'rgba(255,140,74,.55)';
-        ctx.shadowBlur = 18;
-        ctx.beginPath();
-        ctx.arc(0, 0, m.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = 'rgba(255,255,255,.35)';
-        ctx.beginPath();
-        ctx.arc(-m.r * 0.3, -m.r * 0.3, Math.max(1.5, m.r * 0.22), 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      for (const i of state.interceptors) {
-        drawTrail(i.trail, 'rgba(100,220,255,', 0.22);
-        ctx.save();
-        ctx.translate(i.x, i.y);
-        ctx.rotate(Math.atan2(i.vy, i.vx));
-        ctx.strokeStyle = '#9fe8ff';
-        ctx.shadowColor = 'rgba(159,232,255,.8)';
-        ctx.shadowBlur = 10;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(-12, 0);
-        ctx.lineTo(8, 0);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      for (const e of state.explosions) {
-        ctx.save();
-        const alpha = clamp(e.life / 0.62, 0, 1);
-        ctx.globalAlpha = alpha;
-        const rg = ctx.createRadialGradient(e.x, e.y, e.r * 0.2, e.x, e.y, e.r);
-        rg.addColorStop(0, 'rgba(220,255,255,0.95)');
-        rg.addColorStop(0.3, 'rgba(120,220,255,0.65)');
-        rg.addColorStop(1, 'rgba(50,180,255,0)');
-        ctx.fillStyle = rg;
-        ctx.shadowColor = 'rgba(120,220,255,.9)';
-        ctx.shadowBlur = 22;
-        ctx.beginPath();
-        ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      // Draw alien ships
-      for (const a of state.aliens) {
-        drawAlienShip(a, state.time);
-        drawTrail(a.trail, 'rgba(255,100,80,', 0.08);
-      }
-
-      if (state.saucer) {
-        ctx.save();
-        ctx.translate(state.saucer.x, state.saucer.y);
-        const pulse = 0.65 + Math.sin(performance.now() * 0.02) * 0.12;
-        ctx.globalAlpha = pulse;
-        ctx.shadowColor = 'rgba(255,220,120,.95)';
-        ctx.shadowBlur = 18;
-        ctx.fillStyle = '#ffe7a1';
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 22, 8, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#9fe8ff';
-        ctx.beginPath();
-        ctx.ellipse(0, -6, 10, 5, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = 'rgba(255,160,70,.9)';
-        ctx.beginPath();
-        ctx.ellipse(0, 10, 12, 4, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      for (const p of state.particles) {
-        ctx.save();
-        ctx.globalAlpha = clamp(p.life, 0, 1);
-        ctx.fillStyle = p.color + clamp(p.life, 0, 1) + ')';
-        ctx.fillRect(p.x, p.y, p.size, p.size);
-        ctx.restore();
-      }
-
-      // Draw floating texts
-      for (const ft of state.floatingTexts) {
-        ctx.save();
-        ctx.globalAlpha = clamp(ft.life / ft.maxLife, 0, 1);
-        ctx.fillStyle = ft.color;
-        ctx.font = `900 ${ft.size}px system-ui, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.shadowColor = 'rgba(0,0,0,.7)';
-        ctx.shadowBlur = 6;
-        ctx.fillText(ft.text, ft.x, ft.y);
-        ctx.restore();
-      }
-
-      for (const f of state.flashes) {
-        ctx.save();
-        ctx.globalAlpha = f.life / 0.12;
-        ctx.fillStyle = 'rgba(255,255,255,0.5)';
-        ctx.fillRect(0, 0, innerWidth, innerHeight);
-        ctx.restore();
+    // City glow
+    ctx.shadowColor = 'rgba(0,255,65,.6)';
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = '#00ff41';
+    // Main building
+    ctx.fillRect(-12, -30, 24, 30);
+    // Left wing
+    ctx.fillRect(-18, -20, 8, 20);
+    // Right wing
+    ctx.fillRect(10, -16, 8, 16);
+    // Top antenna
+    ctx.fillStyle = '#00cc33';
+    ctx.fillRect(-1, -38, 2, 10);
+    // Windows (flickering)
+    ctx.fillStyle = '#88ff88';
+    const flicker = Math.sin(S.time*3 + c.x) > 0.3 ? 1 : 0.3;
+    ctx.globalAlpha = flicker;
+    for (let row = 0; row < 3; row++) {
+      for (let col = -1; col <= 1; col++) {
+        ctx.fillRect(col*7-2, -26+row*9, 4, 5);
       }
     }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+}
 
-    function drawTrail(trail, colorBase, peakAlpha) {
-      for (let i = 0; i < trail.length; i++) {
-        const p = trail[i];
-        ctx.save();
-        ctx.globalAlpha = p.life * peakAlpha;
-        ctx.fillStyle = colorBase + clamp(p.life, 0, 1) + ')';
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 2.2 * (i / trail.length + 0.4), 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-        p.life -= 0.016;
-      }
+// ─── Missile Bases ───────────────────────────────────────────────────
+function drawBases() {
+  for (let i = 0; i < S.basePositions.length; i++) {
+    const b = S.basePositions[i];
+    const ammo = S.baseAmmo[i];
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    // Base triangle
+    ctx.fillStyle = '#00ff41';
+    ctx.shadowColor = 'rgba(0,255,65,.5)';
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.moveTo(0, -18);
+    ctx.lineTo(-12, 0);
+    ctx.lineTo(12, 0);
+    ctx.closePath();
+    ctx.fill();
+    // Antenna
+    ctx.strokeStyle = '#00ff41';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, -18);
+    ctx.lineTo(0, -26);
+    ctx.stroke();
+    // Blinking light on antenna
+    if (Math.sin(S.time*6 + i*2) > 0) {
+      ctx.fillStyle = '#00ff41';
+      ctx.beginPath();
+      ctx.arc(0, -26, 2, 0, Math.PI*2);
+      ctx.fill();
     }
-
-    function drawUI() {
-      if (!state.running && !state.gameOver) {
-        overlay.style.display = 'block';
-      }
-      if (state.hintTimer > 0 && state.running) {
-        ctx.save();
-        ctx.globalAlpha = Math.min(1, state.hintTimer / 2);
-        ctx.fillStyle = 'rgba(7,15,25,0.52)';
-        ctx.fillRect(12, innerHeight - 84, Math.min(420, innerWidth - 24), 58);
-        ctx.strokeStyle = 'rgba(140,220,255,0.22)';
-        ctx.strokeRect(12, innerHeight - 84, Math.min(420, innerWidth - 24), 58);
-        ctx.fillStyle = '#f2fbff';
-        ctx.font = '700 14px system-ui, sans-serif';
-        ctx.fillText('Tap anywhere to launch from the nearest surviving city.', 24, innerHeight - 52);
-        ctx.restore();
-      }
-
-      ctx.save();
-      ctx.fillStyle = 'rgba(255,255,255,0.1)';
-      ctx.font = '700 12px system-ui, sans-serif';
-      ctx.fillText('Wave ' + state.wave, 14, innerHeight - 14);
-      ctx.fillText('Cities ' + state.cities.filter(c => c.alive).length + '/3', innerWidth - 94, innerHeight - 14);
-
-      // Combo indicator
-      if (state.comboCount >= 2 && state.comboTimer > 0) {
-        ctx.fillStyle = 'rgba(255,220,120,0.7)';
-        ctx.font = '700 11px system-ui, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(`${state.comboMultiplier}x COMBO`, innerWidth / 2, innerHeight - 14);
-      }
-      ctx.restore();
+    ctx.shadowBlur = 0;
+    // Ammo display (small horizontal lines below base)
+    const ammoY = 8;
+    const lineW = 4;
+    const gap = 2;
+    for (let j = 0; j < ammo; j++) {
+      const lx = -((ammo-1)*(lineW+gap))/2 + j*(lineW+gap);
+      ctx.fillStyle = j < 5 ? '#00ff41' : '#00aa33';
+      ctx.fillRect(lx, ammoY, lineW, 2);
     }
+    ctx.restore();
+  }
+}
 
-    function render(t) {
-      drawBackground(t);
-      drawCities();
-      drawEntities();
-      drawUI();
-    }
-
-    let last = performance.now();
-    function loop(now) {
-      const dt = Math.min(0.033, (now - last) / 1000);
-      last = now;
-      if (state.running) update(dt);
-      render(now / 1000);
-      requestAnimationFrame(loop);
-    }
-
-    function onPointer(e) {
-      e.preventDefault();
-      audioInit();
-      const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX || (e.touches && e.touches[0].clientX) || innerWidth / 2) - rect.left;
-      const y = (e.clientY || (e.touches && e.touches[0].clientY) || innerHeight / 2) - rect.top;
-      if (!state.running || state.gameOver) {
-        startGame();
-        return;
-      }
-      launchInterceptor(x, y);
-    }
-
-    canvas.addEventListener('pointerdown', onPointer, { passive: false });
-    canvas.addEventListener('touchstart', onPointer, { passive: false });
-    window.addEventListener('resize', resize);
-    window.addEventListener('orientationchange', () => setTimeout(resize, 100));
-    window.addEventListener('keydown', (e) => {
-      if (e.code === 'Space' || e.code === 'Enter') {
-        audioInit();
-        if (!state.running || state.gameOver) startGame();
-        else launchInterceptor(state.lastPointerX || innerWidth / 2, state.lastPointerY || innerHeight * 0.35);
-      }
+// ─── Meteors ─────────────────────────────────────────────────────────
+function spawnMeteor(targetCity, splitCount, splitY, sizeTier) {
+  const x = rand(20, innerWidth-20);
+  const y = -20;
+  const speed = [65, 90, 120, 155][clamp(sizeTier,0,3)] + S.wave * 3;
+  const target = targetCity || S.cityPositions[Math.floor(rand(0, S.cityPositions.length))];
+  if (!target || !target.alive) {
+    // Target any alive city, or random point on ground
+    const alive = S.cityPositions.filter(c => c.alive);
+    const t = alive.length ? alive[Math.floor(rand(0, alive.length))] : null;
+    const tx = t ? t.x : rand(20, innerWidth-20);
+    const ty = S.groundY;
+    const dx = tx - x, dy = ty - y;
+    const len = Math.hypot(dx,dy)||1;
+    const radii = [14, 10, 7, 4.5][clamp(sizeTier,0,3)];
+    S.meteors.push({
+      x, y, vx: dx/len*speed, vy: dy/len*speed,
+      r: radii, rot: rand(0,Math.PI*2), spin: rand(-3,3),
+      alive: true, trail: [],
+      splitCount, splitY: splitY || S.groundY * rand(0.25, 0.55),
+      sizeTier
     });
+  } else {
+    const dx = target.x - x, dy = target.y - y;
+    const len = Math.hypot(dx,dy)||1;
+    const radii = [14, 10, 7, 4.5][clamp(sizeTier,0,3)];
+    S.meteors.push({
+      x, y, vx: dx/len*speed, vy: dy/len*speed,
+      r: radii, rot: rand(0,Math.PI*2), spin: rand(-3,3),
+      alive: true, trail: [],
+      splitCount, splitY: splitY || S.groundY * rand(0.25, 0.55),
+      sizeTier
+    });
+  }
+}
 
-    resize();
-    syncHud();
-    requestAnimationFrame(loop);
-  })();
-  </script>
+function splitMeteor(m) {
+  const numSplits = Math.floor(rand(2, 5)); // 2-4 new meteors
+  const newTier = clamp(m.sizeTier + 1, 0, 3);
+  const newSplitCount = Math.max(0, m.splitCount - 1);
+  for (let i = 0; i < numSplits; i++) {
+    const angle = rand(-0.8, 0.8); // Spread angle from parent
+    const parentDir = Math.atan2(m.vy, m.vx);
+    const newSpeed = [65, 90, 120, 155][clamp(newTier,0,3)] + S.wave * 3;
+    const newDir = parentDir + angle;
+    const splitY = S.groundY * rand(0.2, 0.5);
+    // Target a random city
+    const alive = S.cityPositions.filter(c => c.alive);
+    const target = alive.length ? alive[Math.floor(rand(0, alive.length))] : null;
+    const tx = target ? target.x : rand(20, innerWidth-20);
+    const ty = S.groundY;
+    const dx = tx - m.x, dy = ty - m.y;
+    const len = Math.hypot(dx,dy)||1;
+    const radii = [14, 10, 7, 4.5][clamp(newTier,0,3)];
+    S.meteors.push({
+      x: m.x + rand(-5,5), y: m.y + rand(-5,5),
+      vx: dx/len*newSpeed, vy: dy/len*newSpeed,
+      r: radii, rot: rand(0,Math.PI*2), spin: rand(-3,3),
+      alive: true, trail: [],
+      splitCount: newSplitCount,
+      splitY: newSplitCount > 0 ? splitY : S.groundY * 2,
+      sizeTier: newTier
+    });
+  }
+  m.dead = true;
+}
+
+function drawMeteor(m) {
+  // Segmented trail
+  for (let i = 0; i < m.trail.length; i++) {
+    const p = m.trail[i];
+    const alpha = (i / m.trail.length) * 0.6;
+    const size = m.r * 0.3 * (i / m.trail.length);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#ff2200';
+    ctx.fillRect(p.x - size/2, p.y - size/2, size, size);
+  }
+  ctx.globalAlpha = 1;
+  // Meteor body
+  ctx.save();
+  ctx.translate(m.x, m.y);
+  ctx.rotate(m.rot);
+  // Outer glow
+  ctx.shadowColor = 'rgba(255,50,0,.7)';
+  ctx.shadowBlur = 12;
+  // Core
+  const grd = ctx.createRadialGradient(-m.r*0.2, -m.r*0.2, 1, 0, 0, m.r);
+  grd.addColorStop(0, '#ffcc44');
+  grd.addColorStop(0.4, '#ff4400');
+  grd.addColorStop(1, '#881100');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(0, 0, m.r, 0, Math.PI*2);
+  ctx.fill();
+  // Highlight
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(255,255,200,.4)';
+  ctx.beginPath();
+  ctx.arc(-m.r*0.25, -m.r*0.25, m.r*0.3, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ─── Interceptors ────────────────────────────────────────────────────
+function drawInterceptor(i) {
+  // Trail
+  for (let j = 0; j < i.trail.length; j++) {
+    const p = i.trail[j];
+    const alpha = (j / i.trail.length) * 0.5;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 1.5 * (j/i.trail.length), 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  // Missile
+  ctx.save();
+  ctx.translate(i.x, i.y);
+  ctx.rotate(Math.atan2(i.vy, i.vx));
+  ctx.strokeStyle = '#ffffff';
+  ctx.shadowColor = 'rgba(255,255,255,.8)';
+  ctx.shadowBlur = 8;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(-10, 0);
+  ctx.lineTo(6, 0);
+  ctx.stroke();
+  // Nose tip
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.moveTo(8, 0);
+  ctx.lineTo(4, -3);
+  ctx.lineTo(4, 3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+// ─── Explosions ──────────────────────────────────────────────────────
+function createExplosion(x, y, maxR) {
+  S.explosions.push({
+    x, y, r: 0, maxR: maxR || 55,
+    expanding: true, age: 0, life: 0.55,
+    flash: 0.15
+  });
+  spawnParticles(x, y, '#00ffff', 10, 0.7);
+  // Dig terrain if near ground
+  if (y > S.groundY - maxR - 10) {
+    digTerrain(x, y, maxR * 0.8);
+  }
+  if (maxR > 65) sndBigBoom(); else sndExplosion();
+}
+
+function drawExplosion(e) {
+  const alpha = clamp(e.life / 0.55, 0, 1);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  // Outer glow
+  ctx.shadowColor = 'rgba(0,255,255,.8)';
+  ctx.shadowBlur = 20;
+  // Main ring
+  const rg = ctx.createRadialGradient(e.x, e.y, e.r*0.1, e.x, e.y, e.r);
+  rg.addColorStop(0, 'rgba(255,255,255,0.95)');
+  rg.addColorStop(0.25, 'rgba(200,255,255,0.7)');
+  rg.addColorStop(0.6, 'rgba(0,255,255,0.35)');
+  rg.addColorStop(1, 'rgba(0,200,255,0)');
+  ctx.fillStyle = rg;
+  ctx.beginPath();
+  ctx.arc(e.x, e.y, e.r, 0, Math.PI*2);
+  ctx.fill();
+  // Bright center
+  if (e.r > 8) {
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.r*0.15, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+// ─── Particles ───────────────────────────────────────────────────────
+function spawnParticles(x, y, color, count, speed) {
+  for (let i = 0; i < count; i++) {
+    const ang = Math.random()*Math.PI*2;
+    const sp = rand(30, 200)*speed;
+    S.particles.push({
+      x, y, vx: Math.cos(ang)*sp, vy: Math.sin(ang)*sp - 20,
+      life: rand(0.4, 1.0), color, size: rand(1.2, 3)
+    });
+  }
+}
+
+function drawParticles() {
+  for (const p of S.particles) {
+    ctx.globalAlpha = clamp(p.life, 0, 1);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ─── Floating Text ───────────────────────────────────────────────────
+function addFloatingText(x, y, text, color, size) {
+  S.floatingTexts.push({x, y, text, color, size, life: 1.3, maxLife: 1.3});
+}
+
+function drawFloatingTexts() {
+  for (const ft of S.floatingTexts) {
+    ctx.save();
+    ctx.globalAlpha = clamp(ft.life/ft.maxLife, 0, 1);
+    ctx.fillStyle = ft.color;
+    ctx.font = `900 ${ft.size}px "Courier New", monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,.8)';
+    ctx.shadowBlur = 4;
+    ctx.fillText(ft.text, ft.x, ft.y);
+    ctx.restore();
+  }
+}
+
+// ─── Combo ───────────────────────────────────────────────────────────
+function addCombo() {
+  S.comboCount++;
+  S.comboTimer = 2.0;
+  S.comboMult = Math.min(1 + S.comboCount, 8);
+  if (S.comboCount >= 2) {
+    comboEl.textContent = S.comboMult + 'x COMBO!';
+    comboEl.classList.add('show');
+    setTimeout(()=>comboEl.classList.remove('show'), 700);
+  }
+}
+
+// ─── Wave Management ─────────────────────────────────────────────────
+function startWave() {
+  S.wave++;
+  // Meteors per wave increases
+  S.totalMeteorsInWave = 5 + S.wave * 3 + Math.floor(S.wave * S.wave * 0.15);
+  S.spawnInterval = Math.max(0.28, 1.35 - S.wave * 0.07);
+  S.spawnTimer = 0.3;
+  // Refill base ammo
+  for (let i = 0; i < S.baseAmmo.length; i++) {
+    S.baseAmmo[i] = Math.min(25, 16 + Math.floor(S.wave * 0.5));
+  }
+  // Show wave announcement
+  waveAnnEl.textContent = 'WAVE ' + S.wave;
+  waveAnnEl.classList.add('show');
+  S.waveAnnTimer = 2.0;
+  sndWaveStart();
+}
+
+// ─── Spawning ────────────────────────────────────────────────────────
+function spawnWaveMeteors() {
+  if (S.spawnTimer <= 0 && S.totalMeteorsInWave > 0) {
+    // Determine split depth based on wave
+    const maxSplits = Math.min(3, 1 + Math.floor(S.wave / 3));
+    const splitDepth = Math.floor(rand(0, maxSplits + 1));
+    spawnMeteor(null, splitDepth, null, 0); // Start as large meteor
+    S.totalMeteorsInWave--;
+    S.spawnTimer = S.spawnInterval * rand(0.7, 1.2);
+  }
+}
+
+// ─── Launch Interceptor ──────────────────────────────────────────────
+function launchInterceptor(tx, ty) {
+  if (S.gameOver || !S.running || S.fireCooldown > 0) return;
+  // Find nearest base with ammo
+  let bestBase = null, bestAmmoIdx = -1, bestDist = Infinity;
+  for (let i = 0; i < S.basePositions.length; i++) {
+    if (S.baseAmmo[i] <= 0) continue;
+    const b = S.basePositions[i];
+    const d = dist(b.x, b.y, tx, ty);
+    if (d < bestDist) { bestDist = d; bestBase = b; bestAmmoIdx = i; }
+  }
+  if (!bestBase) return; // No ammo left
+  // Launch!
+  const dx = tx - bestBase.x;
+  const dy = ty - bestBase.y;
+  const len = Math.hypot(dx,dy)||1;
+  const speed = 520;
+  S.interceptors.push({
+    x: bestBase.x, y: bestBase.y - 18,
+    vx: dx/len*speed, vy: dy/len*speed,
+    tx, ty, trail: []
+  });
+  S.baseAmmo[bestAmmoIdx]--;
+  S.fireCooldown = 0.12;
+  S.lastPointerX = tx;
+  S.lastPointerY = ty;
+  sndLaunch();
+}
+
+// ─── Update ──────────────────────────────────────────────────────────
+function update(dt) {
+  S.time += dt;
+  S.spawnTimer -= dt;
+  S.fireCooldown = Math.max(0, S.fireCooldown - dt);
+  S.screenShake = Math.max(0, S.screenShake - dt * 8);
+  if (S.waveAnnTimer > 0) {
+    S.waveAnnTimer -= dt;
+    if (S.waveAnnTimer <= 0) waveAnnEl.classList.remove('show');
+  }
+  // Combo timer
+  if (S.comboTimer > 0) {
+    S.comboTimer -= dt;
+    if (S.comboTimer <= 0) { S.comboCount = 0; S.comboMult = 1; }
+  }
+  // Spawn meteors
+  spawnWaveMeteors();
+  // Check wave complete
+  if (S.totalMeteorsInWave <= 0 && S.meteors.length === 0 && S.interceptors.length === 0 && S.explosions.length === 0) {
+    startWave();
+    return;
+  }
+  // Update interceptors
+  for (const i of S.interceptors) {
+    i.trail.push({x:i.x, y:i.y});
+    if (i.trail.length > 8) i.trail.shift();
+    i.x += i.vx*dt;
+    i.y += i.vy*dt;
+    if (dist(i.x,i.y,i.tx,i.ty) < 14) {
+      createExplosion(i.tx, i.ty, 52 + S.wave * 1.2);
+      i.dead = true;
+    }
+    if (i.x < -60 || i.x > innerWidth+60 || i.y < -60 || i.y > innerHeight+60) i.dead = true;
+  }
+  S.interceptors = S.interceptors.filter(i => !i.dead);
+  // Update meteors
+  for (const m of S.meteors) {
+    m.rot += m.spin * dt;
+    m.x += m.vx * dt;
+    m.y += m.vy * dt;
+    m.trail.push({x:m.x, y:m.y});
+    if (m.trail.length > 12) m.trail.shift();
+    // Check splitting
+    if (m.splitCount > 0 && m.y >= m.splitY) {
+      splitMeteor(m);
+    }
+    // Check terrain collision
+    const terrainH = getTerrainHeight(m.x);
+    const groundLevel = S.groundY + terrainH;
+    if (m.y >= groundLevel - m.r) {
+      m.dead = true;
+      // Check if hitting a city
+      for (const c of S.cityPositions) {
+        if (!c.alive) continue;
+        if (Math.abs(c.x - m.x) < 22 && Math.abs(c.y - m.y) < 30) {
+          c.alive = false;
+          S.lives--;
+          spawnParticles(c.x, c.y-15, '#00ff41', 30, 1.2);
+          spawnParticles(c.x, c.y-15, '#ff4400', 15, 0.8);
+          S.screenShake = 0.4;
+          sndCityHit();
+          addFloatingText(c.x, c.y-50, 'CITY LOST!', '#ff4444', 16);
+          if (S.lives <= 0) { setTimeout(gameOver, 300); }
+          break;
+        }
+      }
+      // Dig crater on impact
+      digTerrain(m.x, m.y, m.r * 2);
+      spawnParticles(m.x, m.y, '#ff6600', 8, 0.5);
+    }
+  }
+  S.meteors = S.meteors.filter(m => !m.dead);
+  // Update explosions
+  for (const e of S.explosions) {
+    e.age += dt;
+    e.life -= dt;
+    if (e.expanding) {
+      e.r = lerp(0, e.maxR, e.age / 0.16);
+      if (e.age >= 0.16) e.expanding = false;
+    } else {
+      e.r = lerp(e.maxR, 0, (e.age - 0.16) / 0.35);
+    }
+    // Check meteor collisions
+    for (const m of S.meteors) {
+      if (m.dead || !m.alive) continue;
+      if (dist(e.x, e.y, m.x, m.y) < e.r + m.r) {
+        m.dead = true;
+        // Points based on size tier (smaller = more points)
+        const basePoints = [60, 80, 100, 120][clamp(m.sizeTier,0,3)];
+        addCombo();
+        const totalPts = Math.round(basePoints * S.comboMult);
+        S.score += totalPts;
+        // Bonus if last missile from base
+        const minAmmo = Math.min(...S.baseAmmo);
+        if (minAmmo <= 1) {
+          S.score += 50;
+          addFloatingText(m.x, m.y-20, '+50 BONUS!', '#ff8800', 14);
+        }
+        spawnParticles(m.x, m.y, '#ff4400', 12, 0.8);
+        spawnParticles(m.x, m.y, '#ffcc00', 8, 0.6);
+        addFloatingText(m.x, m.y-25, '+'+totalPts, '#ffff00', 15);
+        sndMeteorCrack();
+        S.screenShake = Math.max(S.screenShake, 0.08);
+      }
+    }
+    if (e.life <= 0) e.dead = true;
+  }
+  S.explosions = S.explosions.filter(e => !e.dead);
+  // Update particles
+  for (const p of S.particles) {
+    p.life -= dt;
+    p.x += p.vx*dt;
+    p.y += p.vy*dt;
+    p.vy += 40*dt; // gravity
+  }
+  S.particles = S.particles.filter(p => p.life > 0);
+  // Update floating texts
+  for (const ft of S.floatingTexts) {
+    ft.life -= dt;
+    ft.y -= 30*dt;
+  }
+  S.floatingTexts = S.floatingTexts.filter(ft => ft.life > 0);
+  // High score
+  if (S.score > S.high) {
+    S.high = S.score;
+    localStorage.setItem('mc_high', String(S.high));
+  }
+  syncHud();
+}
+
+// ─── HUD ─────────────────────────────────────────────────────────────
+function syncHud() {
+  scoreEl.textContent = 'SCORE: ' + S.score;
+  waveEl.textContent = 'WAVE ' + S.wave;
+  highEl.textContent = 'HIGH: ' + S.high;
+}
+
+// ─── Render ──────────────────────────────────────────────────────────
+function render(t) {
+  // Screen shake
+  ctx.save();
+  if (S.screenShake > 0) {
+    const sx = (Math.random()-0.5)*S.screenShake*8;
+    const sy = (Math.random()-0.5)*S.screenShake*8;
+    ctx.translate(sx, sy);
+  }
+  // Background
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(-10, -10, innerWidth+20, innerHeight+20);
+  // Stars
+  drawStars(t);
+  // Terrain / ground
+  drawTerrain();
+  // Cities
+  drawCities();
+  // Bases
+  drawBases();
+  // Explosions
+  for (const e of S.explosions) drawExplosion(e);
+  // Meteors
+  for (const m of S.meteors) drawMeteor(m);
+  // Interceptors
+  for (const i of S.interceptors) drawInterceptor(i);
+  // Particles
+  drawParticles();
+  // Floating texts
+  drawFloatingTexts();
+  ctx.restore();
+}
+
+// ─── Game Over ───────────────────────────────────────────────────────
+function gameOver() {
+  S.running = false;
+  S.gameOver = true;
+  if (S.score > S.high) {
+    S.high = S.score;
+    localStorage.setItem('mc_high', String(S.high));
+  }
+  syncHud();
+  sndGameOver();
+  overlayEl.classList.remove('hidden');
+  overlayEl.innerHTML = `
+    <h1>GAME OVER</h1>
+    <p>Final Score: <b style="color:#00ff41">${S.score}</b></p>
+    <p>High Score: <b style="color:#00ff41">${S.high}</b></p>
+    <p>Waves Survived: <b style="color:#00ff41">${S.wave}</b></p>
+    <p class="blink" style="margin-top:16px;">[ TAP TO PLAY AGAIN ]</p>
+  `;
+}
+
+// ─── Start Game ──────────────────────────────────────────────────────
+function startGame() {
+  S.running = true;
+  S.gameOver = false;
+  S.score = 0;
+  S.time = 0;
+  S.wave = 0;
+  S.lives = 3;
+  S.explosions = [];
+  S.interceptors = [];
+  S.meteors = [];
+  S.particles = [];
+  S.floatingTexts = [];
+  S.baseAmmo = [];
+  S.comboCount = 0;
+  S.comboTimer = 0;
+  S.comboMult = 1;
+  S.screenShake = 0;
+  S.waveAnnTimer = 0;
+  // Reset cities
+  for (const c of S.cityPositions) { c.alive = true; c.rubble = false; }
+  // Reset terrain
+  for (let i = 0; i < S.terrain.length; i++) S.terrain[i] = 0;
+  overlayEl.classList.add('hidden');
+  startWave();
+  syncHud();
+}
+
+// ─── Input ───────────────────────────────────────────────────────────
+function onPointer(e) {
+  e.preventDefault();
+  audioInit();
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX || (e.touches && e.touches[0].clientX) || innerWidth/2) - rect.left;
+  const y = (e.clientY || (e.touches && e.touches[0].clientY) || innerHeight/2) - rect.top;
+  if (!S.running || S.gameOver) {
+    startGame();
+    return;
+  }
+  launchInterceptor(x, y);
+}
+
+canvas.addEventListener('pointerdown', onPointer, {passive:false});
+canvas.addEventListener('touchstart', onPointer, {passive:false});
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', ()=>setTimeout(resize, 100));
+window.addEventListener('keydown', (e) => {
+  if (e.code==='Space'||e.code==='Enter') {
+    e.preventDefault();
+    audioInit();
+    if (!S.running||S.gameOver) startGame();
+    else launchInterceptor(S.lastPointerX||innerWidth/2, S.lastPointerY||innerHeight*0.4);
+  }
+});
+
+// ─── Game Loop ───────────────────────────────────────────────────────
+let lastTime = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - lastTime)/1000);
+  lastTime = now;
+  if (S.running) update(dt);
+  render(now/1000);
+  requestAnimationFrame(loop);
+}
+
+resize();
+syncHud();
+requestAnimationFrame(loop);
+
+})();
+</script>
 </body>
 </html>
