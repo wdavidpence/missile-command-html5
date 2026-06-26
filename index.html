@@ -25,13 +25,14 @@
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
   .combo { position:fixed; left:50%; top:44%; transform:translate(-50%,-50%); color:#ffff00; font-size:clamp(24px,5vw,40px); font-weight:900; text-shadow:0 0 16px rgba(255,255,0,.8); opacity:0; pointer-events:none; user-select:none; }
   .combo.show { opacity:1; }
-  /* CRT scanline overlay */
   .scanlines { position:fixed; inset:0; pointer-events:none; background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.12) 2px,rgba(0,0,0,.12) 4px); z-index:10; }
+  .vignette { position:fixed; inset:0; pointer-events:none; background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.5) 100%); z-index:9; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div class="scanlines"></div>
+<div class="vignette"></div>
 <div class="hud">
 <div class="score-bar">
   <span class="score-item" id="scoreLabel">SCORE: 0</span>
@@ -64,14 +65,13 @@ const highEl = document.getElementById('highLabel');
 const waveAnnEl = document.getElementById('waveAnnounce');
 const comboEl = document.getElementById('combo');
 const overlayEl = document.getElementById('overlay');
-const livesBarEl = document.getElementById('livesBar');
 
 // ─── State ───────────────────────────────────────────────────────────
 const S = {
   running: false, gameOver: false, score: 0,
   high: Number(localStorage.getItem('mc_high') || 0),
   time: 0, wave: 0, lives: 3,
-  missilesLeftInWave: 0, spawnTimer: 0, spawnInterval: 1.4,
+  spawnTimer: 0, spawnInterval: 1.4,
   explosions: [], interceptors: [], meteors: [],
   particles: [], floatingTexts: [], stars: [],
   terrain: null, groundY: 0,
@@ -80,10 +80,12 @@ const S = {
   audio: null, fireCooldown: 0,
   comboCount: 0, comboTimer: 0, comboMult: 1,
   waveAnnTimer: 0, screenShake: 0,
-  // Missile ammo per base
   baseAmmo: [],
-  // Meteor split tracking
   totalMeteorsInWave: 0,
+  saucer: null,
+  saucerTimer: 0,
+  // Background grid
+  gridLines: [],
 };
 
 function rand(a,b){return Math.random()*(b-a)+a;}
@@ -140,15 +142,17 @@ function sndBigBoom() {
   playOsc({type:'sawtooth',start:120,end:25,dur:0.45,gain:0.18});
 }
 function sndCityHit() {
-  // Harsh noise-like sound
   playOsc({type:'square',start:400,end:80,dur:0.5,gain:0.15});
   playOsc({type:'sawtooth',start:200,end:60,dur:0.4,gain:0.12});
 }
 function sndMeteorCrack() {
   playOsc({type:'square',start:1200,end:200,dur:0.08,gain:0.08});
 }
-function sndSaucer() {
+function sndSaucerAppear() {
   playOsc({type:'square',start:180,end:320,dur:0.15,gain:0.07});
+}
+function sndSaucerBonus() {
+  playOsc({type:'sine',start:520,end:1180,dur:0.25,gain:0.14});
 }
 function sndGameOver() {
   playOsc({type:'sawtooth',start:220,end:50,dur:0.8,gain:0.12});
@@ -169,29 +173,28 @@ function resize() {
   initTerrain();
   layoutEntities();
   buildStars();
+  buildGrid();
 }
 
 function initTerrain() {
-  const w = Math.ceil(canvas.width / (Math.min(window.devicePixelRatio||1,2)));
-  S.terrain = new Float32Array(w);
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  S.terrain = new Float32Array(Math.ceil(innerWidth / dpr * dpr));
 }
 
 function layoutEntities() {
   const w = innerWidth;
-  const n = 6; // 3 cities + 3 bases
+  const n = 6;
   const spacing = w / (n+1);
   S.cityPositions = [];
   S.basePositions = [];
-  // Alternating: city(0), base(1), city(2), base(3), city(4), base(5)
   for (let i = 0; i < n; i++) {
     const x = spacing * (i+1);
     if (i % 2 === 0) {
-      S.cityPositions.push({x, y: S.groundY, alive: true, rubble: false});
+      S.cityPositions.push({x, y: S.groundY, alive: true});
     } else {
       S.basePositions.push({x, y: S.groundY, ammo: 18});
     }
   }
-  // Reset ammo
   S.baseAmmo = S.basePositions.map(b => b.ammo);
 }
 
@@ -199,9 +202,20 @@ function buildStars() {
   const count = Math.round((innerWidth*innerHeight)/25000);
   S.stars = Array.from({length:count}, ()=>({
     x: Math.random()*innerWidth,
-    y: Math.random()*innerHeight*0.6,
+    y: Math.random()*innerHeight*0.55,
     r: rand(0.5,1.5), a: rand(0.2,0.7), s: rand(0.3,1.2)
   }));
+}
+
+function buildGrid() {
+  S.gridLines = [];
+  const spacing = 40;
+  for (let x = spacing; x < innerWidth; x += spacing) {
+    S.gridLines.push({x, type:'v'});
+  }
+  for (let y = spacing; y < S.groundY; y += spacing) {
+    S.gridLines.push({y, type:'h'});
+  }
 }
 
 // ─── Terrain Digging ─────────────────────────────────────────────────
@@ -213,7 +227,6 @@ function digTerrain(cx, cy, radius) {
   for (let x = startX; x <= endX; x++) {
     const dx = x - cx;
     const depth = Math.sqrt(Math.max(0, pxRadius*pxRadius - dx*dx));
-    // Dig semi-circle below the explosion center
     const digDepth = cy + depth - S.groundY;
     if (digDepth > 0) {
       S.terrain[x] = Math.max(S.terrain[x], digDepth);
@@ -239,7 +252,6 @@ function drawTerrain() {
   }
   ctx.stroke();
   ctx.shadowBlur = 0;
-  // Fill below ground with gradient
   const grd = ctx.createLinearGradient(0, S.groundY, 0, innerHeight);
   grd.addColorStop(0, '#003300');
   grd.addColorStop(1, '#000a00');
@@ -253,7 +265,7 @@ function drawTerrain() {
   ctx.lineTo(0, innerHeight);
   ctx.closePath();
   ctx.fill();
-  // Top edge highlight line
+  // Top edge highlight
   ctx.strokeStyle = 'rgba(0,255,65,.3)';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -264,6 +276,23 @@ function drawTerrain() {
   }
   ctx.stroke();
   ctx.lineWidth = 2;
+}
+
+// ─── Background Grid ─────────────────────────────────────────────────
+function drawGrid() {
+  ctx.strokeStyle = 'rgba(0,255,65,.06)';
+  ctx.lineWidth = 0.5;
+  for (const line of S.gridLines) {
+    ctx.beginPath();
+    if (line.type === 'v') {
+      ctx.moveTo(line.x, 0);
+      ctx.lineTo(line.x, S.groundY);
+    } else {
+      ctx.moveTo(0, line.y);
+      ctx.lineTo(innerWidth, line.y);
+    }
+    ctx.stroke();
+  }
 }
 
 // ─── Stars ───────────────────────────────────────────────────────────
@@ -296,10 +325,9 @@ function drawCities() {
       ctx.restore();
       continue;
     }
-    // Original arcade style: triangular pyramid city
+    // Arcade-style triangular pyramid
     ctx.shadowColor = 'rgba(0,255,65,.7)';
     ctx.shadowBlur = 12;
-    // Main triangle
     ctx.fillStyle = '#00ff41';
     ctx.beginPath();
     ctx.moveTo(0, -36);
@@ -307,7 +335,7 @@ function drawCities() {
     ctx.lineTo(16, 0);
     ctx.closePath();
     ctx.fill();
-    // Inner triangle (lighter)
+    // Inner triangle
     ctx.fillStyle = '#00cc33';
     ctx.beginPath();
     ctx.moveTo(0, -28);
@@ -320,14 +348,13 @@ function drawCities() {
     ctx.shadowBlur = 0;
     const flicker = Math.sin(S.time*4 + c.x*0.1) > 0.2 ? 1 : 0.4;
     ctx.globalAlpha = flicker;
-    // Horizontal window lines
     for (let row = 0; row < 3; row++) {
       const yy = -8 - row*9;
       const ww = 12 - row*3;
       ctx.fillRect(-ww/2, yy, ww, 2);
     }
     ctx.globalAlpha = 1;
-    // Top antenna with blink
+    // Antenna
     ctx.strokeStyle = '#00ff41';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -351,42 +378,131 @@ function drawBases() {
     const ammo = S.baseAmmo[i];
     ctx.save();
     ctx.translate(b.x, b.y);
-    // Base triangle
+    // Base triangle (rocket silo shape)
     ctx.fillStyle = '#00ff41';
     ctx.shadowColor = 'rgba(0,255,65,.5)';
     ctx.shadowBlur = 6;
     ctx.beginPath();
-    ctx.moveTo(0, -18);
-    ctx.lineTo(-12, 0);
-    ctx.lineTo(12, 0);
+    ctx.moveTo(0, -20);
+    ctx.lineTo(-14, 0);
+    ctx.lineTo(14, 0);
+    ctx.closePath();
+    ctx.fill();
+    // Inner triangle
+    ctx.fillStyle = '#00cc33';
+    ctx.beginPath();
+    ctx.moveTo(0, -15);
+    ctx.lineTo(-9, 0);
+    ctx.lineTo(9, 0);
     ctx.closePath();
     ctx.fill();
     // Antenna
     ctx.strokeStyle = '#00ff41';
     ctx.lineWidth = 1.5;
+    ctx.shadowBlur = 0;
     ctx.beginPath();
-    ctx.moveTo(0, -18);
-    ctx.lineTo(0, -26);
+    ctx.moveTo(0, -20);
+    ctx.lineTo(0, -28);
     ctx.stroke();
-    // Blinking light on antenna
+    // Blinking light
     if (Math.sin(S.time*6 + i*2) > 0) {
       ctx.fillStyle = '#00ff41';
+      ctx.shadowColor = 'rgba(0,255,65,.8)';
+      ctx.shadowBlur = 6;
       ctx.beginPath();
-      ctx.arc(0, -26, 2, 0, Math.PI*2);
+      ctx.arc(0, -28, 2, 0, Math.PI*2);
       ctx.fill();
+      ctx.shadowBlur = 0;
     }
-    ctx.shadowBlur = 0;
-    // Ammo display (small horizontal lines below base)
+    // Ammo display
     const ammoY = 8;
-    const lineW = 4;
+    const lineW = 3;
     const gap = 2;
-    for (let j = 0; j < ammo; j++) {
-      const lx = -((ammo-1)*(lineW+gap))/2 + j*(lineW+gap);
+    for (let j = 0; j < Math.min(ammo, 20); j++) {
+      const lx = -((Math.min(ammo,20)-1)*(lineW+gap))/2 + j*(lineW+gap);
       ctx.fillStyle = j < 5 ? '#00ff41' : '#00aa33';
       ctx.fillRect(lx, ammoY, lineW, 2);
     }
+    if (ammo > 20) {
+      ctx.fillStyle = '#00ff41';
+      ctx.font = '10px "Courier New"';
+      ctx.textAlign = 'center';
+      ctx.fillText(ammo+'', 0, ammoY + 10);
+    }
     ctx.restore();
   }
+}
+
+// ─── Saucer (Bonus Target) ───────────────────────────────────────────
+function spawnSaucer() {
+  if (S.saucer) return;
+  const fromLeft = Math.random() < 0.5;
+  const y = S.groundY * rand(0.12, 0.32);
+  const speed = rand(140, 200);
+  S.saucer = {
+    x: fromLeft ? -50 : innerWidth + 50,
+    y,
+    vx: fromLeft ? speed : -speed,
+    r: 18,
+    wobble: rand(0, Math.PI*2),
+    alive: true,
+    points: [50, 100, 150, 200, 300][Math.floor(rand(0,5))],
+    blinkTimer: 0,
+  };
+  sndSaucerAppear();
+}
+
+function drawSaucer() {
+  if (!S.saucer) return;
+  const s = S.saucer;
+  ctx.save();
+  ctx.translate(s.x, s.y);
+  const dir = s.vx > 0 ? 1 : -1;
+  ctx.scale(dir, 1);
+  s.wobble += 0.05;
+  s.blinkTimer += 0.016;
+
+  // Glow
+  ctx.shadowColor = 'rgba(255,220,100,.9)';
+  ctx.shadowBlur = 16;
+
+  // Main body - flying saucer shape
+  ctx.fillStyle = '#ffcc44';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, s.r, 6, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // Dome
+  ctx.fillStyle = '#ffe888';
+  ctx.beginPath();
+  ctx.ellipse(0, -4, 8, 7, 0, Math.PI, Math.PI*2);
+  ctx.fill();
+
+  // Lights around rim (blinking)
+  ctx.shadowBlur = 0;
+  const blinkOn = Math.sin(s.blinkTimer * 12) > 0;
+  for (let i = -2; i <= 2; i++) {
+    const lx = i * 7;
+    if (blinkOn) {
+      ctx.fillStyle = '#ff4444';
+      ctx.beginPath();
+      ctx.arc(lx, 5, 2, 0, Math.PI*2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = '#aa2222';
+      ctx.beginPath();
+      ctx.arc(lx, 5, 2, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  // Bottom glow
+  ctx.fillStyle = 'rgba(255,180,50,.3)';
+  ctx.beginPath();
+  ctx.ellipse(0, 8, 14, 4, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  ctx.restore();
 }
 
 // ─── Meteors ─────────────────────────────────────────────────────────
@@ -394,51 +510,35 @@ function spawnMeteor(targetCity, splitCount, splitY, sizeTier) {
   const x = rand(20, innerWidth-20);
   const y = -20;
   const speed = [65, 90, 120, 155][clamp(sizeTier,0,3)] + S.wave * 3;
-  const target = targetCity || S.cityPositions[Math.floor(rand(0, S.cityPositions.length))];
-  if (!target || !target.alive) {
-    // Target any alive city, or random point on ground
-    const alive = S.cityPositions.filter(c => c.alive);
-    const t = alive.length ? alive[Math.floor(rand(0, alive.length))] : null;
-    const tx = t ? t.x : rand(20, innerWidth-20);
-    const ty = S.groundY;
-    const dx = tx - x, dy = ty - y;
-    const len = Math.hypot(dx,dy)||1;
-    const radii = [14, 10, 7, 4.5][clamp(sizeTier,0,3)];
-    S.meteors.push({
-      x, y, vx: dx/len*speed, vy: dy/len*speed,
-      r: radii, rot: rand(0,Math.PI*2), spin: rand(-3,3),
-      alive: true, trail: [],
-      splitCount, splitY: splitY || S.groundY * rand(0.25, 0.55),
-      sizeTier
-    });
-  } else {
-    const dx = target.x - x, dy = target.y - y;
-    const len = Math.hypot(dx,dy)||1;
-    const radii = [14, 10, 7, 4.5][clamp(sizeTier,0,3)];
-    S.meteors.push({
-      x, y, vx: dx/len*speed, vy: dy/len*speed,
-      r: radii, rot: rand(0,Math.PI*2), spin: rand(-3,3),
-      alive: true, trail: [],
-      splitCount, splitY: splitY || S.groundY * rand(0.25, 0.55),
-      sizeTier
-    });
-  }
+  // Target any alive city, or random
+  const alive = S.cityPositions.filter(c => c.alive);
+  const target = alive.length ? alive[Math.floor(rand(0, alive.length))] : null;
+  const tx = target ? target.x : rand(20, innerWidth-20);
+  const ty = S.groundY;
+  const dx = tx - x, dy = ty - y;
+  const len = Math.hypot(dx,dy)||1;
+  const radii = [14, 10, 7, 4.5][clamp(sizeTier,0,3)];
+  S.meteors.push({
+    x, y, vx: dx/len*speed, vy: dy/len*speed,
+    r: radii, rot: rand(0,Math.PI*2), spin: rand(-3,3),
+    alive: true, trail: [],
+    splitCount, splitY: splitY || S.groundY * rand(0.25, 0.55),
+    sizeTier
+  });
 }
 
 function splitMeteor(m) {
-  // Split flash effect
+  // Split flash
   spawnParticles(m.x, m.y, '#ff8800', 16, 1.5);
   spawnParticles(m.x, m.y, '#ffff00', 10, 1.2);
-  const numSplits = Math.floor(rand(2, 5)); // 2-4 new meteors
+  const numSplits = Math.floor(rand(2, 5));
   const newTier = clamp(m.sizeTier + 1, 0, 3);
   const newSplitCount = Math.max(0, m.splitCount - 1);
   for (let i = 0; i < numSplits; i++) {
-    const angle = rand(-0.8, 0.8); // Spread angle from parent
     const parentDir = Math.atan2(m.vy, m.vx);
     const newSpeed = [65, 90, 120, 155][clamp(newTier,0,3)] + S.wave * 3;
-    const newDir = parentDir + angle;
+    const angle = rand(-0.8, 0.8);
     const splitY = S.groundY * rand(0.2, 0.5);
-    // Target a random city
     const alive = S.cityPositions.filter(c => c.alive);
     const target = alive.length ? alive[Math.floor(rand(0, alive.length))] : null;
     const tx = target ? target.x : rand(20, innerWidth-20);
@@ -460,7 +560,7 @@ function splitMeteor(m) {
 }
 
 function drawMeteor(m) {
-  // Segmented trail (dotted line like original)
+  // Segmented trail
   for (let i = 0; i < m.trail.length; i++) {
     const p = m.trail[i];
     const alpha = (i / m.trail.length) * 0.5;
@@ -470,14 +570,11 @@ function drawMeteor(m) {
     ctx.fillRect(p.x - size/2, p.y - size/2, size, size);
   }
   ctx.globalAlpha = 1;
-  // Meteor body - use segmented triangle shape like original arcade
   ctx.save();
   ctx.translate(m.x, m.y);
   ctx.rotate(m.rot);
-  // Outer glow
   ctx.shadowColor = 'rgba(255,50,0,.8)';
   ctx.shadowBlur = 14;
-  // Core - pyramid/triangle shape
   const grd = ctx.createRadialGradient(-m.r*0.2, -m.r*0.2, 1, 0, 0, m.r);
   grd.addColorStop(0, '#ffcc44');
   grd.addColorStop(0.3, '#ff6600');
@@ -487,7 +584,7 @@ function drawMeteor(m) {
   ctx.beginPath();
   ctx.arc(0, 0, m.r, 0, Math.PI*2);
   ctx.fill();
-  // Segmented lines inside meteor (original arcade style)
+  // Segmented lines
   ctx.shadowBlur = 0;
   ctx.strokeStyle = 'rgba(0,0,0,.3)';
   ctx.lineWidth = 1;
@@ -508,7 +605,7 @@ function drawMeteor(m) {
 
 // ─── Interceptors ────────────────────────────────────────────────────
 function drawInterceptor(i) {
-  // Smoke trail (dotted line like original)
+  // Smoke trail
   for (let j = 0; j < i.trail.length; j++) {
     const p = i.trail[j];
     const alpha = (j / i.trail.length) * 0.4;
@@ -518,7 +615,6 @@ function drawInterceptor(i) {
     ctx.fillRect(p.x - sz/2, p.y - sz/2, sz, sz);
   }
   ctx.globalAlpha = 1;
-  // Missile body
   ctx.save();
   ctx.translate(i.x, i.y);
   ctx.rotate(Math.atan2(i.vy, i.vx));
@@ -556,10 +652,8 @@ function createExplosion(x, y, maxR) {
   S.explosions.push({
     x, y, r: 0, maxR: maxR || 55,
     expanding: true, age: 0, life: 0.55,
-    flash: 0.15
   });
   spawnParticles(x, y, '#00ffff', 10, 0.7);
-  // Dig terrain if near ground
   if (y > S.groundY - maxR - 10) {
     digTerrain(x, y, maxR * 0.8);
   }
@@ -570,10 +664,8 @@ function drawExplosion(e) {
   const alpha = clamp(e.life / 0.55, 0, 1);
   ctx.save();
   ctx.globalAlpha = alpha;
-  // Outer glow ring
   ctx.shadowColor = 'rgba(0,255,255,.8)';
   ctx.shadowBlur = 24;
-  // Main ring
   const rg = ctx.createRadialGradient(e.x, e.y, e.r*0.05, e.x, e.y, e.r);
   rg.addColorStop(0, 'rgba(255,255,255,0.98)');
   rg.addColorStop(0.15, 'rgba(230,255,255,0.85)');
@@ -584,7 +676,7 @@ function drawExplosion(e) {
   ctx.beginPath();
   ctx.arc(e.x, e.y, e.r, 0, Math.PI*2);
   ctx.fill();
-  // Bright center dot
+  // Bright center
   if (e.r > 5) {
     const cg = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, e.r*0.12);
     cg.addColorStop(0, 'rgba(255,255,255,0.9)');
@@ -594,7 +686,7 @@ function drawExplosion(e) {
     ctx.arc(e.x, e.y, e.r*0.12, 0, Math.PI*2);
     ctx.fill();
   }
-  // Outer ring line (original arcade style)
+  // Outer ring line (expanding phase)
   if (e.expanding && e.r > 8) {
     ctx.strokeStyle = 'rgba(0,255,255,0.3)';
     ctx.lineWidth = 1.5;
@@ -662,28 +754,28 @@ function addCombo() {
 // ─── Wave Management ─────────────────────────────────────────────────
 function startWave() {
   S.wave++;
-  // Meteors per wave increases
   S.totalMeteorsInWave = 5 + S.wave * 3 + Math.floor(S.wave * S.wave * 0.15);
   S.spawnInterval = Math.max(0.28, 1.35 - S.wave * 0.07);
   S.spawnTimer = 0.3;
-  // Refill base ammo
+  // Refill ammo
   for (let i = 0; i < S.baseAmmo.length; i++) {
     S.baseAmmo[i] = Math.min(25, 16 + Math.floor(S.wave * 0.5));
   }
-  // Show wave announcement
+  // Wave announcement
   waveAnnEl.textContent = 'WAVE ' + S.wave;
   waveAnnEl.classList.add('show');
   S.waveAnnTimer = 2.0;
   sndWaveStart();
+  // Saucer on every 5th wave
+  S.saucerTimer = S.wave % 5 === 0 ? 3.0 : 0;
 }
 
 // ─── Spawning ────────────────────────────────────────────────────────
 function spawnWaveMeteors() {
   if (S.spawnTimer <= 0 && S.totalMeteorsInWave > 0) {
-    // Determine split depth based on wave
     const maxSplits = Math.min(3, 1 + Math.floor(S.wave / 3));
     const splitDepth = Math.floor(rand(0, maxSplits + 1));
-    spawnMeteor(null, splitDepth, null, 0); // Start as large meteor
+    spawnMeteor(null, splitDepth, null, 0);
     S.totalMeteorsInWave--;
     S.spawnTimer = S.spawnInterval * rand(0.7, 1.2);
   }
@@ -692,7 +784,6 @@ function spawnWaveMeteors() {
 // ─── Launch Interceptor ──────────────────────────────────────────────
 function launchInterceptor(tx, ty) {
   if (S.gameOver || !S.running || S.fireCooldown > 0) return;
-  // Find nearest base with ammo
   let bestBase = null, bestAmmoIdx = -1, bestDist = Infinity;
   for (let i = 0; i < S.basePositions.length; i++) {
     if (S.baseAmmo[i] <= 0) continue;
@@ -700,14 +791,13 @@ function launchInterceptor(tx, ty) {
     const d = dist(b.x, b.y, tx, ty);
     if (d < bestDist) { bestDist = d; bestBase = b; bestAmmoIdx = i; }
   }
-  if (!bestBase) return; // No ammo left
-  // Launch!
+  if (!bestBase) return;
   const dx = tx - bestBase.x;
   const dy = ty - bestBase.y;
   const len = Math.hypot(dx,dy)||1;
   const speed = 520;
   S.interceptors.push({
-    x: bestBase.x, y: bestBase.y - 18,
+    x: bestBase.x, y: bestBase.y - 20,
     vx: dx/len*speed, vy: dy/len*speed,
     tx, ty, trail: []
   });
@@ -733,10 +823,49 @@ function update(dt) {
     S.comboTimer -= dt;
     if (S.comboTimer <= 0) { S.comboCount = 0; S.comboMult = 1; }
   }
+  // Saucer timer
+  if (S.saucerTimer > 0) {
+    S.saucerTimer -= dt;
+    if (S.saucerTimer <= 0) spawnSaucer();
+  }
+  // Saucer update
+  if (S.saucer) {
+    const s = S.saucer;
+    s.x += s.vx * dt;
+    // Check explosion collision
+    for (const e of S.explosions) {
+      if (!s) break;
+      if (dist(e.x, e.y, s.x, s.y) < e.r + s.r) {
+        addCombo();
+        const bonus = Math.round(s.points * S.comboMult);
+        S.score += bonus;
+        spawnParticles(s.x, s.y, '#ffcc44', 24, 1.2);
+        spawnParticles(s.x, s.y, '#ff6644', 16, 1.0);
+        addFloatingText(s.x, s.y - 30, '+' + bonus, '#ffcc44', 20);
+        sndSaucerBonus();
+        S.saucer = null;
+        S.screenShake = Math.max(S.screenShake, 0.15);
+        break;
+      }
+    }
+    // Off screen
+    if (S.saucer && (S.saucer.x < -80 || S.saucer.x > innerWidth + 80)) {
+      S.saucer = null;
+    }
+  }
   // Spawn meteors
   spawnWaveMeteors();
   // Check wave complete
   if (S.totalMeteorsInWave <= 0 && S.meteors.length === 0 && S.interceptors.length === 0 && S.explosions.length === 0) {
+    // Wave bonus: surviving cities
+    let waveBonus = 0;
+    for (const c of S.cityPositions) {
+      if (c.alive) waveBonus += 100;
+    }
+    if (waveBonus > 0) {
+      S.score += waveBonus;
+      addFloatingText(innerWidth/2, S.groundY - 80, 'WAVE BONUS: +' + waveBonus, '#00ff41', 18);
+    }
     startWave();
     return;
   }
@@ -788,14 +917,12 @@ function update(dt) {
       const leftH = getTerrainHeight(m.x - 4);
       const rightH = getTerrainHeight(m.x + 4);
       const slope = rightH - leftH;
-      if (Math.abs(slope) > 1) {
-        // Deflect horizontally based on slope
-        m.vy = -Math.abs(m.vy) * 0.5; // bounce up
-        m.vx += slope * 8; // deflect along slope
-        m.dead = false; // keep alive, deflect instead of die
+      if (Math.abs(slope) > 1.5) {
+        m.vy = -Math.abs(m.vy) * 0.5;
+        m.vx += slope * 8;
+        m.dead = false;
         spawnParticles(m.x, m.y, '#ff8800', 6, 0.4);
       } else {
-        // Flat ground - die
         digTerrain(m.x, m.y, m.r * 2);
         spawnParticles(m.x, m.y, '#ff6600', 8, 0.5);
       }
@@ -817,12 +944,10 @@ function update(dt) {
       if (m.dead || !m.alive) continue;
       if (dist(e.x, e.y, m.x, m.y) < e.r + m.r) {
         m.dead = true;
-        // Points based on size tier (smaller = more points)
         const basePoints = [60, 80, 100, 120][clamp(m.sizeTier,0,3)];
         addCombo();
         const totalPts = Math.round(basePoints * S.comboMult);
         S.score += totalPts;
-        // Bonus if last missile from base
         const minAmmo = Math.min(...S.baseAmmo);
         if (minAmmo <= 1) {
           S.score += 50;
@@ -843,7 +968,7 @@ function update(dt) {
     p.life -= dt;
     p.x += p.vx*dt;
     p.y += p.vy*dt;
-    p.vy += 40*dt; // gravity
+    p.vy += 40*dt;
   }
   S.particles = S.particles.filter(p => p.life > 0);
   // Update floating texts
@@ -865,7 +990,6 @@ function syncHud() {
   scoreEl.textContent = 'SCORE: ' + S.score;
   waveEl.textContent = 'WAVE ' + S.wave;
   highEl.textContent = 'HIGH: ' + S.high;
-  // Update lives pips
   for (let i = 0; i < 3; i++) {
     const pip = document.getElementById('pip' + i);
     if (pip) pip.classList.toggle('lost', i >= S.lives);
@@ -874,7 +998,6 @@ function syncHud() {
 
 // ─── Render ──────────────────────────────────────────────────────────
 function render(t) {
-  // Screen shake
   ctx.save();
   if (S.screenShake > 0) {
     const sx = (Math.random()-0.5)*S.screenShake*8;
@@ -884,9 +1007,11 @@ function render(t) {
   // Background
   ctx.fillStyle = '#000000';
   ctx.fillRect(-10, -10, innerWidth+20, innerHeight+20);
+  // Grid
+  drawGrid();
   // Stars
   drawStars(t);
-  // Terrain / ground
+  // Terrain
   drawTerrain();
   // Cities
   drawCities();
@@ -898,6 +1023,8 @@ function render(t) {
   for (const m of S.meteors) drawMeteor(m);
   // Interceptors
   for (const i of S.interceptors) drawInterceptor(i);
+  // Saucer
+  drawSaucer();
   // Particles
   drawParticles();
   // Floating texts
@@ -944,9 +1071,9 @@ function startGame() {
   S.comboMult = 1;
   S.screenShake = 0;
   S.waveAnnTimer = 0;
-  // Reset cities
-  for (const c of S.cityPositions) { c.alive = true; c.rubble = false; }
-  // Reset terrain
+  S.saucer = null;
+  S.saucerTimer = 0;
+  for (const c of S.cityPositions) { c.alive = true; }
   for (let i = 0; i < S.terrain.length; i++) S.terrain[i] = 0;
   overlayEl.classList.add('hidden');
   startWave();
