@@ -130,17 +130,6 @@
     const comboEl = document.getElementById('combo');
     const overlay = document.getElementById('overlay');
 
-    // Kenney sound URLs (SFX Arcade Pack)
-    const KENNEY_SOUNDS = {
-      shoot:    'https://cdn.jsdelivr.net/gh/KenneyNL/SFX-Arcade-Pack@main/Wav/11_Shoot.wav',
-      explosion:'https://cdn.jsdelivr.net/gh/KenneyNL/SFX-Arcade-Pack@main/Wav/07_Explosion.wav',
-      laser:    'https://cdn.jsdelivr.net/gh/KenneyNL/SFX-Arcade-Pack@main/Wav/03_Laser.wav',
-      powerup:  'https://cdn.jsdelivr.net/gh/KenneyNL/SFX-Arcade-Pack@main/Wav/20_PowerUp.wav',
-      hit:      'https://cdn.jsdelivr.net/gh/KenneyNL/SFX-Arcade-Pack@main/Wav/06_Hit.wav',
-      alarm:    'https://cdn.jsdelivr.net/gh/KenneyNL/SFX-Arcade-Pack@main/Wav/01_Alarm.wav',
-      death:    'https://cdn.jsdelivr.net/gh/KenneyNL/SFX-Arcade-Pack@main/Wav/08_Death.wav',
-    };
-
     const state = {
       running: false,
       gameOver: false,
@@ -160,8 +149,6 @@
       lastPointerX: 0,
       lastPointerY: 0,
       audio: null,
-      sounds: {},
-      soundEnabled: false,
       fireCooldown: 0,
       hintTimer: 0,
       saucer: null,
@@ -175,8 +162,6 @@
       comboTimer: 0,
       comboMultiplier: 1,
       floatingTexts: [],
-      soundLoaded: false,
-      soundLoadAttempts: 0,
     };
 
     function rand(min, max) { return Math.random() * (max - min) + min; }
@@ -216,7 +201,7 @@
       ];
     }
 
-    // --- Audio: Kenney sounds via AudioContext ---
+    // --- Audio: oscillator-based sounds (works reliably on iOS Safari) ---
     function audioInit() {
       try {
         if (!state.audio) {
@@ -224,99 +209,54 @@
           if (!AudioCtx) return;
           state.audio = new AudioCtx();
         }
-        if (state.audio.state === 'suspended') state.audio.resume();
+        if (state.audio.state === 'suspended') {
+          state.audio.resume().catch(() => {});
+        }
       } catch (_) {}
     }
 
-    function loadKenneySound(name) {
-      if (state.soundLoaded) return;
-      if (state.sounds[name]) return;
-      const url = KENNEY_SOUNDS[name];
-      if (!url) return;
-      try {
-        const audio = new Audio(url);
-        audio.volume = 0.5;
-        audio.preload = 'auto';
-        state.sounds[name] = audio;
-      } catch(e) {}
-    }
-
-    function playSound(name, rate = 1) {
-      if (!state.soundEnabled) return;
-      const audio = state.sounds[name];
-      if (!audio) return;
-      try {
-        const a = audio.cloneNode();
-        a.playbackRate.value = rate;
-        a.volume = 0.5;
-        a.play().catch(() => {});
-      } catch(e) {}
-    }
-
-    function playKenneyOrFallback(name, fallbackFn) {
-      if (state.soundEnabled && state.sounds[name]) {
-        playSound(name);
-      } else {
-        fallbackFn();
-      }
-    }
-
-    function beep({ type = 'sine', start = 440, end = 220, duration = 0.1, gain = 0.08, when = 0 }) {
+    function playOsc(opts) {
       const ac = state.audio;
       if (!ac) return;
-      const t0 = ac.currentTime + when;
+      const t = ac.currentTime;
       const osc = ac.createOscillator();
       const g = ac.createGain();
-      osc.type = type;
-      osc.frequency.setValueAtTime(start, t0);
-      osc.frequency.exponentialRampToValueAtTime(Math.max(1, end), t0 + duration);
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(gain, t0 + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+      osc.type = opts.type || 'sine';
+      osc.frequency.setValueAtTime(opts.start || 440, t);
+      if (opts.end !== undefined) {
+        osc.frequency.exponentialRampToValueAtTime(Math.max(1, opts.end), t + (opts.duration || 0.1));
+      }
+      const dur = opts.duration || 0.1;
+      const pk = opts.gain || 0.1;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(pk, t + 0.005);
+      g.gain.setValueAtTime(pk, t + dur * 0.6);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       osc.connect(g).connect(ac.destination);
-      osc.start(t0);
-      osc.stop(t0 + duration + 0.03);
+      osc.start(t);
+      osc.stop(t + dur + 0.02);
     }
 
     function soundFire() {
-      playKenneyOrFallback('shoot', () => beep({ type: 'triangle', start: 880, end: 540, duration: 0.08, gain: 0.07 }));
+      playOsc({ type: 'triangle', start: 880, end: 540, duration: 0.08, gain: 0.12 });
     }
     function soundBoom(intensity = 1) {
-      playKenneyOrFallback('explosion', () => beep({ type: 'sawtooth', start: 180, end: 50, duration: 0.22 + 0.12 * intensity, gain: 0.09 + 0.04 * intensity }));
+      playOsc({ type: 'sawtooth', start: 180, end: 50, duration: 0.22 + 0.12 * intensity, gain: 0.14 + 0.05 * intensity });
     }
     function soundHit() {
-      playKenneyOrFallback('hit', () => beep({ type: 'square', start: 980, end: 260, duration: 0.14, gain: 0.05 }));
+      playOsc({ type: 'square', start: 980, end: 260, duration: 0.14, gain: 0.10 });
     }
     function soundGameOver() {
-      playKenneyOrFallback('death', () => beep({ type: 'sawtooth', start: 220, end: 70, duration: 0.65, gain: 0.08 }));
+      playOsc({ type: 'sawtooth', start: 220, end: 70, duration: 0.65, gain: 0.12 });
     }
     function soundAlienBonus() {
-      playKenneyOrFallback('powerup', () => {
-        beep({ type: 'sine', start: 520, end: 1180, duration: 0.25, gain: 0.07 });
-      });
+      playOsc({ type: 'sine', start: 520, end: 1180, duration: 0.25, gain: 0.14 });
     }
     function soundAlienAlarm() {
-      playKenneyOrFallback('alarm', () => beep({ type: 'square', start: 180, end: 320, duration: 0.12, gain: 0.04 }));
+      playOsc({ type: 'square', start: 180, end: 320, duration: 0.12, gain: 0.08 });
     }
     function soundLaser() {
-      playKenneyOrFallback('laser', () => beep({ type: 'sawtooth', start: 1200, end: 400, duration: 0.15, gain: 0.06 }));
-    }
-
-    function tryLoadSounds() {
-      if (state.soundLoadAttempts >= 5) return;
-      state.soundLoadAttempts++;
-      const names = Object.keys(KENNEY_SOUNDS);
-      let loaded = 0;
-      names.forEach(name => {
-        loadKenneySound(name);
-        const audio = state.sounds[name];
-        if (audio) {
-          audio.addEventListener('canplaythrough', () => { loaded++; if (loaded >= names.length) { state.soundEnabled = true; state.soundLoaded = true; } }, { once: true });
-          audio.addEventListener('error', () => {}, { once: true });
-          // Try to play briefly to trigger load
-          audio.play().then(() => { audio.pause(); audio.currentTime = 0; }).catch(() => {});
-        }
-      });
+      playOsc({ type: 'sawtooth', start: 1200, end: 400, duration: 0.15, gain: 0.10 });
     }
 
     function spawnParticles(x, y, color, count, speed = 1) {
@@ -409,7 +349,6 @@
       spawnWave();
       overlay.style.display = 'none';
       syncHud();
-      tryLoadSounds();
     }
 
     function gameOver() {
